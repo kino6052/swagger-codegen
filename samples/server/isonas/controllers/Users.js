@@ -7,7 +7,9 @@ module.exports.userGET = function userGET (req, res, next) {
   var id = req.swagger.params['id'].value;
   Users.userGET(id)
     .then(function (response) {
-      utils.writeJson(res, response);
+        res.setHeader('Content-Type', 'application/json');
+        res.examples = response;
+        next();
     })
     .catch(function (response) {
       utils.writeJson(res, response);

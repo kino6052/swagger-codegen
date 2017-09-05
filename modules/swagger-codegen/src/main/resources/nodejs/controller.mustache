@@ -11,7 +11,9 @@ module.exports.{{nickname}} = function {{nickname}} (req, res, next) {
   {{/allParams}}
   {{classname}}.{{nickname}}({{#allParams}}{{paramName}}{{#hasMore}},{{/hasMore}}{{/allParams}})
     .then(function (response) {
-      utils.writeJson(res, response);
+      res.setHeader('Content-Type', 'application/json');
+      res.examples = response;
+      next();
     })
     .catch(function (response) {
       utils.writeJson(res, response);

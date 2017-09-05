@@ -11,9 +11,8 @@ exports.userGET = function(id) {
   return new Promise(function(resolve, reject) {
     var examples = {};
     examples['application/json'] = {
-  "password" : "password",
+  "lastName" : "lastName",
   "id" : "id",
-  "username" : "username"
 };
     if (Object.keys(examples).length > 0) {
       resolve(examples[Object.keys(examples)[0]]);
