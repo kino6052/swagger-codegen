@@ -1,0 +1,85 @@
+---
+swagger: "2.0"
+info:
+  description: "This is REST API Specification for Pure Access.\n"
+  version: "1.0.0"
+  title: "Pure Access REST API"
+  termsOfService: "http://swagger.io/terms/"
+  contact:
+    email: "apiteam@swagger.io"
+  license:
+    name: "Apache 2.0"
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+host: "localhost:9080"
+basePath: "/"
+schemes:
+- "http"
+- "https"
+paths:
+  /user:
+    get:
+      tags:
+      - "users"
+      summary: "Get User"
+      operationId: "userGET"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "query"
+        description: "ID of user to retrieve"
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "Successful operation"
+          schema:
+            $ref: "#/definitions/User"
+          headers:
+            Access-Control-Allow-Origin:
+              type: "string"
+              description: "URI that may access the resource"
+      x-apigateway-integration:
+        responses:
+          default:
+            statusCode: "200"
+            responseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        requestParameters:
+          integration.request.querystring.page: "method.request.querystring.page"
+          integration.request.querystring.type: "method.request.querystring.type"
+        uri: "https://localhost:9080/getUser"
+        passthroughBehavior: "when_no_match"
+        httpMethod: "GET"
+        type: "http"
+      x-swagger-router-controller: "Users"
+definitions:
+  Users:
+    type: "array"
+    items:
+      $ref: "#/definitions/User"
+  Empty:
+    type: "object"
+  NewResponse:
+    type: "object"
+    properties:
+      pet:
+        $ref: "#/definitions/User"
+      message:
+        type: "string"
+  User:
+    type: "object"
+    properties:
+      id:
+        type: "string"
+      username:
+        type: "string"
+      password:
+        type: "string"
+    example:
+      password: "password"
+      id: "id"
+      username: "username"
+externalDocs:
+  description: "Find out more about Swagger"
+  url: "http://swagger.io"

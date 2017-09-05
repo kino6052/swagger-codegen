@@ -305,6 +305,7 @@ public class NodeJSServerCodegen extends DefaultCodegen implements CodegenConfig
         } else {
             writeOptional(outputFolder, new SupportingFile("index.mustache", "", "index.js"));
         }
+        writeOptional(outputFolder, new SupportingFile("custom-middlewares.mustache", "", "custom-middlewares.mustache"));
         writeOptional(outputFolder, new SupportingFile("package.mustache", "", "package.json"));
         writeOptional(outputFolder, new SupportingFile("README.mustache", "", "README.md"));
         if (System.getProperty("noservice") == null) {

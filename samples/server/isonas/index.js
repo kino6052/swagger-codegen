@@ -1,17 +1,13 @@
 'use strict';
 
 var fs = require('fs'),
-    express = require('express'),
-    app = express(),
     path = require('path'),
-    http = require('http'),
-    querystring = require('querystring'),
-    customMiddleware = require('../custom-middlewares');
+    http = require('http');
 
 var app = require('connect')();
 var swaggerTools = require('swagger-tools');
 var jsyaml = require('js-yaml');
-var serverPort = {{serverPort}};
+var serverPort = 9080;
 
 // swaggerRouter configuration
 var options = {
@@ -33,23 +29,14 @@ swaggerTools.initializeMiddleware(swaggerDoc, function (middleware) {
   // Validate Swagger requests
   app.use(middleware.swaggerValidator());
 
-  // Authenticate requests
-  app.use(customMiddleware['authenticationMiddleware']);
-
-  // Map the requests to Pure Access endpoints
-  app.use(customMiddleware['gatewayMiddleware']);
-
   // Route validated requests to appropriate controller
   app.use(middleware.swaggerRouter(options));
-
-  // Validate Fields of the Response
-  app.use(customMiddleware['postFormatMiddleware']);
 
   // Serve the Swagger documents and Swagger UI
   app.use(middleware.swaggerUi());
 
   // Start the server
-  app.listen(serverPort, function () {
+  http.createServer(app).listen(serverPort, function () {
     console.log('Your server is listening on port %d (http://localhost:%d)', serverPort, serverPort);
     console.log('Swagger-ui is available on http://localhost:%d/docs', serverPort);
   });
