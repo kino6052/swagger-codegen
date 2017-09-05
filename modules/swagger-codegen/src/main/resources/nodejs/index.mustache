@@ -6,9 +6,8 @@ var fs = require('fs'),
     path = require('path'),
     http = require('http'),
     querystring = require('querystring'),
-    customMiddleware = require('../custom-middlewares');
+    customMiddleware = require('./custom-middlewares');
 
-var app = require('connect')();
 var swaggerTools = require('swagger-tools');
 var jsyaml = require('js-yaml');
 var serverPort = {{serverPort}};

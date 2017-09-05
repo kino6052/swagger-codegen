@@ -1,7 +1,7 @@
 'use strict';
 
 var utils = require('../utils/writer.js');
-var Users = require('../service/UsersService');
+var Users = require('../controllers/UsersService');
 
 module.exports.userGET = function userGET (req, res, next) {
   var id = req.swagger.params['id'].value;

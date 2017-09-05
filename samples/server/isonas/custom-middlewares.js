@@ -1,10 +1,11 @@
 const querystring     = require('querystring');
+const http            = require('http');
 
 // Authentication Middleware
 module.exports.authenticationMiddleware = function authenticationMiddleware(req, res, next){
   const options = {
-    hostname: 'localhost',
-    port: 9080,
+    hostname: req.swagger.swaggerObject.host.replace(/:\d*/, ''),
+    port: req.swagger.swaggerObject.host.replace(/\w*:/, ''),
     path: "/login",
     method: "POST",
     headers: {
