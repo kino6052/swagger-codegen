@@ -63,20 +63,20 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
             response.setEncoding('utf8');
         response.on('data', (chunk) => {
             console.log(`BODY: ${chunk}`);
-        body += chunk;
-    });
+            body += chunk;
+        });
         response.on('end', () =>
-        {
-            var data = JSON.parse(body);
-        if (data.success) {
-            res.data = data;
-            next();
-        } else {
-            res.header({"content-type": "application/json"});
-            res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
-        }
-    }
-    );
+            {
+                var data = JSON.parse(body);
+                if (data.success) {
+                    res.data = data;
+                    next();
+                } else {
+                    res.header({"content-type": "application/json"});
+                    res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+                }
+            }
+        );
     });
 
 
@@ -88,7 +88,7 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     } catch (e) {
         next();
     }
-}
+};
 
 function findNode(key, currentNode, maxDepth) {
     var i,
@@ -121,6 +121,18 @@ function findNode(key, currentNode, maxDepth) {
 
 // Parse the Result and Populate Fields
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
+    function propertyFormatter(result, property){
+        if (result){
+            switch (property){
+                case "profileId":
+                    result = req.swagger.swaggerObject.host + "/attachment?id="+result;
+                    break;
+                default:
+                    break;
+            }
+            return result;
+        }
+    }
     try {
         var result = res.examples;
         if (res.examples.constructor === Array){
@@ -132,6 +144,8 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
                             item[property] = findNode(property, item, 3);
                             if (item[property] === false) {
                                 item[property] = null;
+                            } else {
+                                result[property] = propertyFormatter(result[property], property);
                             }
                         }
                     );
@@ -144,6 +158,8 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
                     result[property] = findNode(property, res.data, 3);
                     if (result[property] === false) {
                         result[property] = null;
+                    } else {
+                        result[property] = propertyFormatter(result[property], property);
                     }
                 }
             );
@@ -153,6 +169,6 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
     } catch (e) {
         res.status(499).send(JSON.stringify({"message": "Bad Result"}));
     }
-}
+};
 
 
