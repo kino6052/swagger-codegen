@@ -81,11 +81,13 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     }
 }
 
-function findNode(key, currentNode) {
+function findNode(key, currentNode, maxDepth) {
     var i,
-        currentChild,
-        result;
-
+    currentChild,
+    result;
+    if (maxDepth <= 0) {
+        return false;
+    }
     if (currentNode.hasOwnProperty(key)) {
         return currentNode[key];
     } else {
@@ -93,29 +95,27 @@ function findNode(key, currentNode) {
         // Otherwise "return" will not work properly
         for (i = 0; i < Object.keys(currentNode).length; i += 1) {
             currentChild = currentNode[Object.keys(currentNode)[i]];
-
             // Search in the current child
-            result = findNode(key, currentChild);
-
+            result = findNode(key, currentChild, maxDepth - 1);
             // Return the result if the node has been found
             if (result !== false) {
                 return result;
             }
-        }
-
-        // The node has not been found and we have no more options
-        return false;
+    }
+    // The node has not been found and we have no more options
+    return false;
     }
 }
 
+// Parse the Result and Populate Fields
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
     try {
         var result = res.examples;
         Object.keys(result).forEach(
             function(property){
-                result[property] = findNode(property, res.data);
+                result[property] = findNode(property, res.data, 3);
                 if (result[property] === false) {
-                    throw new Error();
+                    result[property] = "";
                 }
             }
         );
