@@ -111,17 +111,36 @@ function findNode(key, currentNode, maxDepth) {
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
     try {
         var result = res.examples;
-        Object.keys(result).forEach(
-            function(property){
-                result[property] = findNode(property, res.data, 3);
-                if (result[property] === false) {
-                    result[property] = "";
+        if (res.examples.constructor === Array){
+            result = res.data.result;
+            result.forEach(
+                function(item){
+                    Object.keys(res.examples[0]).forEach(
+                        function(property){
+                            item[property] = findNode(property, item, 3);
+                            if (item[property] === false) {
+                                item[property] = "";
+                            }
+                        }
+                    );
                 }
-            }
-        );
+            );
+
+        } else {
+            Object.keys(result).forEach(
+                function(property){
+                    result[property] = findNode(property, res.data, 3);
+                    if (result[property] === false) {
+                        result[property] = "";
+                    }
+                }
+            );
+        }
+
         res.end(JSON.stringify(result));
     } catch (e) {
         res.status(499).send(JSON.stringify({"message": "Bad Result"}));
     }
 }
+
 
