@@ -104,6 +104,9 @@ function findNode(key, currentNode, maxDepth) {
         // Otherwise "return" will not work properly
         for (i = 0; i < Object.keys(currentNode).length; i += 1) {
             currentChild = currentNode[Object.keys(currentNode)[i]];
+            if (currentChild === null) {
+                continue;
+            };
             // Search in the current child
             result = findNode(key, currentChild, maxDepth - 1);
             // Return the result if the node has been found
@@ -128,7 +131,7 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
                         function(property){
                             item[property] = findNode(property, item, 3);
                             if (item[property] === false) {
-                                item[property] = "";
+                                item[property] = null;
                             }
                         }
                     );
@@ -140,7 +143,7 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
                 function(property){
                     result[property] = findNode(property, res.data, 3);
                     if (result[property] === false) {
-                        result[property] = "";
+                        result[property] = null;
                     }
                 }
             );
