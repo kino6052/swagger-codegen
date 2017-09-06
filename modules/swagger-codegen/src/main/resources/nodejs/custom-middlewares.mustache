@@ -57,24 +57,33 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
             params: req.params
         };
 
+        var body = "";
+
         const request = http.request(options, (response) => {
             response.setEncoding('utf8');
-            response.on('data', (chunk) => {
-                console.log(`BODY: ${chunk}`);
-                var data = JSON.parse(chunk);
-                if (data.success) {
-                    res.data = data;
-                    next();
-                } else {
-                    res.header({"content-type": "application/json"});
-                    res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
-                }
-            });
-        });
+        response.on('data', (chunk) => {
+            console.log(`BODY: ${chunk}`);
+        body += chunk;
+    });
+        response.on('end', () =>
+        {
+            var data = JSON.parse(body);
+        if (data.success) {
+            res.data = data;
+            next();
+        } else {
+            res.header({"content-type": "application/json"});
+            res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+        }
+    }
+    );
+    });
+
+
 
         request.on('error', (e) => {
             console.error(`Problem with Request: ${e.message}`);
-        });
+    });
         request.end();
     } catch (e) {
         next();
