@@ -131,16 +131,21 @@ function findNode(key, currentNode, maxDepth) {
 
 // Parse the Result and Populate Fields
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
-    var example = res.examples;
-    var item = res.data;
+    var examples = res.examples;
+    var result = res.data.result;
 
     // Conform the Results to the Fields in Model as Defined in the Swagger File
-    const parseResult = function (property) {
-        example[property] = findNode(property, item, 3);
-        if (example[property] === false) {
-            example[property] = null;
-        } else {
-            example[property] = propertyFormatter(example[property], property);
+    const parseResult = function (result) {
+        if (!result.hasOwnProperty("id")){
+            throw new Error();
+        }
+        return function(property){
+            result[property] = findNode(property, result, 3);
+            if (result[property] === false) {
+                result[property] = null;
+            } else {
+                result[property] = propertyFormatter(result[property], property);
+            }
         }
     };
 
@@ -160,19 +165,17 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
     try {
         // Array of Results
         if (res.examples.constructor === Array){
-            example = res.data.result;
-            example.forEach(
+            result.forEach(
                 function(i){
-                    item = i;
-                    Object.keys(example[0]).forEach(parseResult);
+                    Object.keys(examples[0]).forEach(parseResult(i));
                 }
             );
         }
         // Single Result
         else {
-            Object.keys(example).forEach(parseResult);
+            Object.keys(examples).forEach(parseResult(result));
         }
-        res.end(JSON.stringify(example));
+        res.end(JSON.stringify(examples));
     } catch (e) {
         res.status(499).send(JSON.stringify({"message": "Bad Result"}));
     }
