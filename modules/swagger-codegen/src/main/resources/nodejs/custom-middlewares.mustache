@@ -116,7 +116,7 @@ function findNode(key, currentNode, maxDepth) {
             currentChild = currentNode[Object.keys(currentNode)[i]];
             if (currentChild === null) {
                 continue;
-            };
+            }
             // Search in the current child
             result = findNode(key, currentChild, maxDepth - 1);
             // Return the result if the node has been found
@@ -131,6 +131,20 @@ function findNode(key, currentNode, maxDepth) {
 
 // Parse the Result and Populate Fields
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
+    var example = res.examples;
+    var item = res.data;
+
+    // Conform the Results to the Fields in Model as Defined in the Swagger File
+    const parseResult = function (property) {
+        example[property] = findNode(property, item, 3);
+        if (example[property] === false) {
+            example[property] = null;
+        } else {
+            example[property] = propertyFormatter(example[property], property);
+        }
+    };
+
+    // Some Properties will Need to Get Transformed. i.e. Image URL is formed from the profileId
     function propertyFormatter(result, property){
         if (result){
             switch (property){
@@ -144,38 +158,21 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
         }
     }
     try {
-        var result = res.examples;
+        // Array of Results
         if (res.examples.constructor === Array){
-            result = res.data.result;
-            result.forEach(
-                function(item){
-                    Object.keys(res.examples[0]).forEach(
-                        function(property){
-                            item[property] = findNode(property, item, 3);
-                            if (item[property] === false) {
-                                item[property] = null;
-                            } else {
-                                result[property] = propertyFormatter(result[property], property);
-                            }
-                        }
-                    );
-                }
-            );
-
-        } else {
-            Object.keys(result).forEach(
-                function(property){
-                    result[property] = findNode(property, res.data, 3);
-                    if (result[property] === false) {
-                        result[property] = null;
-                    } else {
-                        result[property] = propertyFormatter(result[property], property);
-                    }
+            example = res.data.result;
+            example.forEach(
+                function(i){
+                    item = i;
+                    Object.keys(example[0]).forEach(parseResult);
                 }
             );
         }
-
-        res.end(JSON.stringify(result));
+        // Single Result
+        else {
+            Object.keys(example).forEach(parseResult);
+        }
+        res.end(JSON.stringify(example));
     } catch (e) {
         res.status(499).send(JSON.stringify({"message": "Bad Result"}));
     }
