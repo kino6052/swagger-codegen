@@ -135,17 +135,19 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
     var result = res.data.result;
 
     // Conform the Results to the Fields in Model as Defined in the Swagger File
-    const parseResult = function (result) {
-        if (!result.hasOwnProperty("id")){
+    const parseResult = function (input) {
+        var result = {};
+        if (!input.hasOwnProperty("id")){
             throw new Error();
         }
-        return function(property){
-            result[property] = findNode(property, result, 3);
+        return function f(property){
+            result[property] = findNode(property, input, 3);
             if (result[property] === false) {
                 result[property] = null;
             } else {
                 result[property] = propertyFormatter(result[property], property);
             }
+            f.result = result;
         }
     };
 
@@ -165,17 +167,23 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
     try {
         // Array of Results
         if (res.examples.constructor === Array){
+            var newResult = [];
             result.forEach(
                 function(i){
-                    Object.keys(examples[0]).forEach(parseResult(i));
+                    var callback = parseResult(i);
+                    Object.keys(examples[0]).forEach(callback);
+                    newResult.push(callback.result);
                 }
             );
+            result = newResult;
         }
         // Single Result
         else {
-            Object.keys(examples).forEach(parseResult(result));
+            var callback = parseResult(result);
+            Object.keys(examples).forEach(callback);
+            result = callback.result;
         }
-        res.end(JSON.stringify(examples));
+        res.end(JSON.stringify(result));
     } catch (e) {
         res.status(499).send(JSON.stringify({"message": "Bad Result"}));
     }
