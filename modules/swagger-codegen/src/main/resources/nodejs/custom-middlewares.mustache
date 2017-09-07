@@ -3,41 +3,51 @@ const http            = require('http');
 
 // Authentication Middleware
 module.exports.authenticationMiddleware = function authenticationMiddleware(req, res, next){
-  const options = {
-    hostname: req.swagger.swaggerObject.host.replace(/:\d*/, ''),
-    port: req.swagger.swaggerObject.host.replace(/\w*:/, ''),
-    path: "/login",
-    method: "POST",
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Cookie': 'username=api; utoken=manager;',
+    const options = {
+        hostname: req.swagger.swaggerObject.host.replace(/:.+/, ''),
+        port: req.swagger.swaggerObject.host.replace(/.+:/, ''),
+        path: "/login",
+        method: "POST",
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Cookie': 'username=api; utoken=manager;',
+        }
+    };
+
+    function decodeBase64(b64String){
+        try {
+            const strippedString = b64String.replace("Basic", "").replace(" ", "");
+            const decoded = new Buffer(strippedString, 'base64').toString();
+            const username = decoded.replace(/:.+/, "");
+            const password = decoded.replace(/.+:/, "");
+            return {username:username, pwd: password};
+        } catch (e) {
+            return {username:"", pwd: ""}
+        }
     }
-  };
 
-  const postData = querystring.stringify({
-     'username': req.header("username"),
-     'pwd': req.header("password")
-  });
 
-  const request = http.request(options, (response) => {
-      response.setEncoding('utf8');
-      response.on('data', (chunk) => {
-          var data = JSON.parse(chunk);
-          if (data.success) {
-              next();
-          } else {
-              res.header({"content-type": "application/json"});
-              res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
-          }
-      });
-  });
+    const postData = querystring.stringify(decodeBase64(req.header("Authorization")));
 
-  request.on('error', (e) => {
-     console.error(`Problem with Request: ${e.message}`);
-  });
+    const request = http.request(options, (response) => {
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+        var data = JSON.parse(chunk);
+            if (data.success) {
+                next();
+            } else {
+                res.header({"content-type": "application/json"});
+                res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+            }
+        });
+    });
 
-  request.write(postData);
-  request.end();
+    request.on('error', (e) => {
+        console.error(`Problem with Request: ${e.message}`);
+    });
+
+    request.write(postData);
+    request.end();
 }
 
 // Gateway Middleware
