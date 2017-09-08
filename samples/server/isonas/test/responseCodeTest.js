@@ -1,15 +1,23 @@
 const assert = require('assert');
+const customMiddlewares = require('../custom-middlewares');
 
 module.exports = {
-    'Test 1' : function(test) {
-        test.expect(1);
-        test.ok(true, "This shouldn't fail");
+    'Post Format Middleware Should Throw Exception if null Gets Passed in' : function(test) {
+        try {
+            customMiddlewares.resultParser(null);
+        } catch (e) {
+            test.ok(true);
+        }
         test.done();
     },
-    'Test 2' : function(test) {
-        test.expect(2);
-        test.ok(1 === 1, "This shouldn't fail");
-        test.ok(false, "This should fail");
+    'Gateway Middleware' : function(test) {
+        try {
+            customMiddlewares.gatewayMiddleware({}, {}, function(){
+                test.ok(true);
+            })
+        } catch (e){
+            test.ok(false);
+        }
         test.done();
     }
 };
