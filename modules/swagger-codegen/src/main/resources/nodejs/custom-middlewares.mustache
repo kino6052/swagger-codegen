@@ -32,7 +32,7 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
     const request = http.request(options, (response) => {
         response.setEncoding('utf8');
         response.on('data', (chunk) => {
-        var data = JSON.parse(chunk);
+            var data = JSON.parse(chunk);
             if (data.success) {
                 next();
             } else {
@@ -47,6 +47,24 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
     });
 
     request.write(postData);
+    request.end();
+}
+
+function makeRequest(options, callback) {
+    var body = "";
+    const request = http.request(options, (response) => {
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+            console.log(`BODY: ${chunk}`);
+            body += chunk;
+        });
+        response.on('end', function(){
+            callback(body)();
+        });
+    });
+    request.on('error', (e) => {
+        console.error(`Problem with Request: ${e.message}`);
+    });
     request.end();
 }
 
@@ -76,34 +94,19 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
             params: getParams()
         };
 
-        var body = "";
-
-        const request = http.request(options, (response) => {
-            response.setEncoding('utf8');
-        response.on('data', (chunk) => {
-            console.log(`BODY: ${chunk}`);
-            body += chunk;
-        });
-        response.on('end', () =>
-            {
-                var data = JSON.parse(body);
-                if (data.success) {
-                    res.data = data;
-                    next();
-                } else {
-                    res.header({"content-type": "application/json"});
-                    res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+        makeRequest(options,
+            function(body) {
+                return function(){
+                    var data = JSON.parse(body);
+                    if (data.success) {
+                        res.data = data;
+                        next();
+                    } else {
+                        res.header({"content-type": "application/json"});
+                        res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+                    }
                 }
-            }
-        );
-    });
-
-
-
-        request.on('error', (e) => {
-            console.error(`Problem with Request: ${e.message}`);
-    });
-        request.end();
+            });
     } catch (e) {
         next();
     }
@@ -111,8 +114,8 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
 
 function findNode(key, currentNode, maxDepth) {
     var i,
-    currentChild,
-    result;
+        currentChild,
+        result;
     if (maxDepth <= 0) {
         return false;
     }
@@ -132,9 +135,9 @@ function findNode(key, currentNode, maxDepth) {
             if (result !== false) {
                 return result;
             }
-    }
-    // The node has not been found and we have no more options
-    return false;
+        }
+        // The node has not been found and we have no more options
+        return false;
     }
 }
 
@@ -165,7 +168,7 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
         if (result){
             switch (property){
                 case "profileId":
-                    result = req.swagger.swaggerObject.host + "/attachment?id="+result;
+                    result = req.swagger.swaggerObject.host + "/attachment?id="+result; // Make Request to get the Octet Stream Here
                     break;
                 default:
                     break;
@@ -197,5 +200,3 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
         res.status(499).send(JSON.stringify({"message": "Bad Result"}));
     }
 };
-
-
