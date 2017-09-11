@@ -54,17 +54,26 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
 module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     try {
         const integration = req.swagger.operation["x-apigateway-integration"];
+
+        function getParams(){
+            var result = {};
+            Object.keys(req.swagger.params).forEach(function(param){
+                result[param] = req.swagger.params[param].value;
+            });
+            return result;
+        }
+
         const options = {
             hostname: integration.hostname,
             port: integration.port,
-            path: integration.path + "?" + querystring.stringify(req.query),
+            path: integration.path + "?" + querystring.stringify(getParams()),
             method: integration.httpMethod,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Cookie': 'username=api; utoken=manager;',
             },
-            query: req.query,
-            params: req.params
+            query: getParams(),
+            params: getParams()
         };
 
         var body = "";

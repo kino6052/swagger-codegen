@@ -1,150 +1,220 @@
----
-swagger: "2.0"
-info:
-  description: "This is REST API Specification for Pure Access.\n"
-  version: "1.0.0"
-  title: "Pure Access REST API"
-  termsOfService: "http://swagger.io/terms/"
-  contact:
-    email: "apiteam@swagger.io"
-  license:
-    name: "Apache 2.0"
-    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
-host: "localhost:9080"
-basePath: "/"
-schemes:
-- "https"
-paths:
-  /users:
-    get:
-      tags:
-      - "users"
-      summary: "Get Users"
-      operationId: "usersGET"
-      produces:
-      - "application/json"
-      # parameters:
-      # - name: "id"
-      #   in: "query"
-      #   description: "ID of user to retrieve"
-      #   required: true
-      #   type: "string"
-      responses:
-        200:
-          description: "Successful operation"
-          schema:
-            type: "array"
-            items:
-              $ref: "#/definitions/User"
-          headers:
-            Access-Control-Allow-Origin:
-              type: "string"
-              description: "URI that may access the resource"
-      x-apigateway-integration:
-        responses:
-          default:
-            statusCode: "200"
-            responseParameters:
-              method.response.header.Access-Control-Allow-Origin: "'*'"
-        requestParameters:
-          integration.request.querystring.page: "method.request.querystring.page"
-          integration.request.querystring.type: "method.request.querystring.type"
-        hostname: "localhost"
-        port: "9080"
-        path: "/ms/getUsersAndImages"
-        passthroughBehavior: "when_no_match"
-        httpMethod: "GET"
-        type: "http"
-      x-swagger-router-controller: "Users"
-  /user:
-    get:
-      tags:
-      - "users"
-      summary: "Get User"
-      operationId: "userGET"
-      produces:
-      - "application/json"
-      parameters:
-      - name: "id"
-        in: "query"
-        description: "ID of user to retrieve"
-        required: true
-        type: "string"
-      responses:
-        200:
-          description: "Successful operation"
-          schema:
-            $ref: "#/definitions/User"
-          headers:
-            Access-Control-Allow-Origin:
-              type: "string"
-              description: "URI that may access the resource"
-      x-apigateway-integration:
-        responses:
-          default:
-            statusCode: "200"
-            responseParameters:
-              method.response.header.Access-Control-Allow-Origin: "'*'"
-        requestParameters:
-          integration.request.querystring.page: "method.request.querystring.page"
-          integration.request.querystring.type: "method.request.querystring.type"
-        hostname: "localhost"
-        port: "9080"
-        path: "/getUser"
-        passthroughBehavior: "when_no_match"
-        httpMethod: "GET"
-        type: "http"
-      x-swagger-router-controller: "Users"
-definitions:
-  Users:
-    type: "array"
-    items:
-      $ref: "#/definitions/User"
-  Empty:
-    type: "object"
-  NewResponse:
-    type: "object"
-    properties:
-      pet:
-        $ref: "#/definitions/User"
-      message:
-        type: "string"
-  User:
-    type: "object"
-    properties:
-      id:
-        type: "number"
-      displayName:
-        type: "string"
-      firstName:
-        type: "string"
-      lastName:
-        type: "string"
-      mi:
-        type: "string"
-      employeeId:
-        type: "string"
-      latchInterval:
-        type: "number"
-      profileId:
-        type: "number"
-      disable:
-        type: "boolean"
-      notificationEmail:
-        type: "string"
-      adGUID:
-        type: "string"
-      currentTenantId:
-        type: "number"
-      currentAreaId:
-        type: "number"
-      userDefinedFieldValues:
-        type: "array"
-        items:
-          type: "string"
-      image:
-        type: "string"
-      
-externalDocs:
-  description: "Find out more about Swagger"
-  url: "http://swagger.io"
+{  
+   "swagger":"2.0",
+   "info":{  
+      "description":"REST API Specification for Pure Access/TruCred Integration.\n",
+      "version":"1.0.0",
+      "title":"Pure Access REST API",
+      "termsOfService":"",
+      "contact":{  
+         "email":"kirill@isonas.com"
+      },
+      "license":{  
+         "name":"Apache 2.0",
+         "url":"http://www.apache.org/licenses/LICENSE-2.0.html"
+      }
+   },
+   "externalDocs":{  
+      "description":"ISONAS Website",
+      "url":"http://isonas.com"
+   },
+   "host":"localhost:9080",
+   "basePath":"/",
+   "schemes":[  
+      "https"
+   ],
+   "paths":{  
+      "/users":{  
+         "get":{  
+            "tags":[  
+               "users"
+            ],
+            "summary":"Get All Users",
+            "operationId":"usersGET",
+            "produces":[  
+               "application/json"
+            ],
+            "responses":{  
+               "200":{  
+                  "description":"Successful operation",
+                  "schema":{  
+                     "type":"array",
+                     "items":{  
+                        "$ref":"#/definitions/Users"
+                     }
+                  },
+                  "headers":{  
+                     "Access-Control-Allow-Origin":{  
+                        "type":"string",
+                        "description":"URI that may access the resource"
+                     }
+                  }
+               }
+            },
+            "x-apigateway-integration":{  
+               "hostname":"localhost",
+               "port":"9080",
+               "path":"/getUsersAndImages",
+               "httpMethod":"GET",
+               "type":"https"
+            },
+            "x-swagger-router-controller":"Users"
+         }
+      },
+      "/users/{id}":{  
+         "get":{  
+            "tags":[  
+               "users"
+            ],
+            "summary":"Get User",
+            "operationId":"userGET",
+            "produces":[  
+               "application/json"
+            ],
+            "parameters":[  
+               {  
+                  "name":"id",
+                  "in":"path",
+                  "description":"ID of user to retrieve",
+                  "required":true,
+                  "type":"string"
+               }
+            ],
+            "responses":{  
+               "200":{  
+                  "description":"Successful operation",
+                  "schema":{  
+                     "$ref":"#/definitions/User"
+                  },
+                  "headers":{  
+                     "Access-Control-Allow-Origin":{  
+                        "type":"string",
+                        "description":"URI that may access the resource"
+                     }
+                  }
+               }
+            },
+            "x-apigateway-integration":{  
+               "requestParameters":null,
+               "hostname":"localhost",
+               "port":"9080",
+               "path":"/getUser",
+               "httpMethod":"GET",
+               "type":"https"
+            },
+            "x-swagger-router-controller":"Users"
+         },
+         "patch":{  
+            "tags":[  
+               "users"
+            ],
+            "summary":"Update User",
+            "operationId":"userPATCH",
+            "produces":[  
+               "application/json"
+            ],
+            "parameters":[  
+               {  
+                  "name":"id",
+                  "in":"path",
+                  "description":"ID of user to update",
+                  "required":true,
+                  "type":"string"
+               },
+               {  
+                  "name":"JsonPatch",
+                  "in":"body",
+                  "description":"JSON Patch Document",
+                  "required":true,
+                  "schema":{  
+                     "$ref":"#/definitions/PatchRequest"
+                  }
+               }
+            ],
+            "responses":{  
+               "200":{  
+                  "description":"Successful operation",
+                  "schema":{  
+                     "$ref":"#/definitions/User"
+                  },
+                  "headers":{  
+                     "Access-Control-Allow-Origin":{  
+                        "type":"string",
+                        "description":"URI that may access the resource"
+                     }
+                  }
+               }
+            },
+            "x-apigateway-integration":{  
+               "requestParameters":null,
+               "hostname":"localhost",
+               "port":"9080",
+               "path":"/saveUser",
+               "httpMethod":"GET",
+               "type":"https"
+            },
+            "x-swagger-router-controller":"Users"
+         }
+      }
+   },
+   "definitions":{  
+      "Users":{  
+         "type":"array",
+         "items":{  
+            "$ref":"#/definitions/User"
+         }
+      },
+      "User":{  
+         "type":"object",
+         "properties":{  
+            "id":{  
+               "type":"integer"
+            },
+            "displayName":{  
+               "type":"string"
+            },
+            "firstName":{  
+               "type":"string"
+            },
+            "lastName":{  
+               "type":"string"
+            },
+            "mi":{  
+               "type":"string"
+            },
+            "employeeId":{  
+               "type":"integer"
+            },
+            "image":{  
+               "type":"string",
+               "format":"base64"
+            },
+            "notificationEmail":{  
+               "type":"string"
+            },
+            "userDefinedFields":{  
+               "type":"array",
+               "items":{  
+                  "type":"object"
+               }
+            },
+            "disable":{  
+               "type":"boolean"
+            }
+         }
+      },
+      "PatchRequest":{  
+         "type":"array",
+         "items":{  
+            "$ref":"#/definitions/PatchDocument"
+         }
+      },
+      "PatchDocument":{  
+         "type":"object",
+         "properties":{  
+            "value":{  
+               "$ref":"#/definitions/User"
+            }
+         }
+      }
+   }
+}
