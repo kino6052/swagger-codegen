@@ -1,5 +1,9 @@
 const querystring     = require('querystring');
 const http            = require('http');
+const headers = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Cookie': 'username=api; utoken=manager;',
+};
 
 // Authentication Middleware
 module.exports.authenticationMiddleware = function authenticationMiddleware(req, res, next){
@@ -8,13 +12,10 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
         port: req.swagger.swaggerObject.host.replace(/.+:/, ''),
         path: "/login",
         method: "POST",
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Cookie': 'username=api; utoken=manager;',
-        }
+        headers: headers
     };
 
-    function decodeBase64(b64String){
+    function decodeBase64AuthenticationToken(b64String){
         try {
             const strippedString = b64String.replace("Basic", "").replace(" ", "");
             const decoded = new Buffer(strippedString, 'base64').toString();
@@ -26,46 +27,61 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
         }
     }
 
-
-    const postData = querystring.stringify(decodeBase64(req.header("Authorization")));
-
-    const request = http.request(options, (response) => {
-        response.setEncoding('utf8');
-        response.on('data', (chunk) => {
-            var data = JSON.parse(chunk);
+    makeRequest(
+        options,
+        querystring.stringify(decodeBase64AuthenticationToken(req.header("Authorization")))
+    ).then(
+        function(data){
             if (data.success) {
                 next();
             } else {
                 res.header({"content-type": "application/json"});
                 res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
             }
+        }
+    )
+};
+
+function makeRequest(options, headers) {
+    var body = "";
+    return new Promise(function(resolve, reject){
+        const request = http.request(options, (response) => {
+            response.setEncoding('utf8');
+            response.on('data', (chunk) => {
+                console.log(`BODY: ${chunk}`);
+                body += chunk;
+            });
+            response.on('end', function(){
+                var result;
+                try {
+                    result = JSON.parse(body);
+                } catch (e) {
+                    result = JSON.parse("{}")
+                }
+                resolve(result);
+            });
         });
+        request.on('error', (e) => {
+            console.error(`Problem with Request: ${e.message}`);
+            reject();
+        });
+        if (headers){
+            request.write(headers)
+        }
+        request.end();
     });
 
-    request.on('error', (e) => {
-        console.error(`Problem with Request: ${e.message}`);
-    });
-
-    request.write(postData);
-    request.end();
 }
 
-function makeRequest(options, callback) {
-    var body = "";
-    const request = http.request(options, (response) => {
-        response.setEncoding('utf8');
-        response.on('data', (chunk) => {
-            console.log(`BODY: ${chunk}`);
-            body += chunk;
-        });
-        response.on('end', function(){
-            callback(body)();
-        });
-    });
-    request.on('error', (e) => {
-        console.error(`Problem with Request: ${e.message}`);
-    });
-    request.end();
+function convertMethod(method){
+    switch (method){
+        case "GET":
+            return "GET";
+        case "POST":
+        case "PATCH":
+        case "PUT":
+            return "POST";
+    }
 }
 
 // Gateway Middleware
@@ -73,40 +89,49 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     try {
         const integration = req.swagger.operation["x-apigateway-integration"];
 
-        function getParams(){
+        function getParams(params){
             var result = {};
-            Object.keys(req.swagger.params).forEach(function(param){
+            Object.keys(params).forEach(function(param){
                 result[param] = req.swagger.params[param].value;
             });
             return result;
         }
 
-        const options = {
-            hostname: integration.hostname,
-            port: integration.port,
-            path: integration.path + "?" + querystring.stringify(getParams()),
-            method: integration.httpMethod,
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Cookie': 'username=api; utoken=manager;',
-            },
-            query: getParams(),
-            params: getParams()
-        };
-
-        makeRequest(options,
-            function(body) {
-                return function(){
-                    var data = JSON.parse(body);
-                    if (data.success) {
-                        res.data = data;
-                        next();
-                    } else {
-                        res.header({"content-type": "application/json"});
-                        res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
-                    }
+        makeRequest(
+            {
+                hostname: integration.hostname,
+                port: integration.port,
+                path: "/getTenantForUser",
+                method: "GET",
+                headers: headers
+            }
+        )
+            .then(
+                function(data){
+                    makeRequest(
+                        {
+                            hostname:   integration.hostname,
+                            port:       integration.port,
+                            path:       integration.path + "?" + querystring.stringify(getParams()) + "&tenantId=" + data.result.id,
+                            method:     convertMethod(integration.httpMethod),
+                            headers:    headers,
+                            query:      getParams(req.swagger.params),
+                            params:     getParams(req.swagger.params)
+                        }
+                    )
+                        .then(
+                            function(data) {
+                                if (data.success) {
+                                    res.data = data;
+                                    next();
+                                } else {
+                                    res.header({"content-type": "application/json"});
+                                    res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+                                }
+                            }
+                        );
                 }
-            });
+            );
     } catch (e) {
         next();
     }
