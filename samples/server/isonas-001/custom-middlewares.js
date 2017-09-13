@@ -113,33 +113,33 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                 headers: headers
             }
         )
-            .then(
-                function(data){
-                    var options = {
-                        hostname:   integration.hostname,
-                        port:       integration.port,
-                        path:       integration.httpMethod === "GET" ? integration.path + "?" + getParams(req.swagger.params, data.result.id)  : integration.path,
-                        method:     convertMethod(integration.httpMethod),
-                        headers:    headers
-                    };
+        .then(
+            function(data){
+                var options = {
+                    hostname:   integration.hostname,
+                    port:       integration.port,
+                    path:       integration.httpMethod === "GET" ? integration.path + "?" + getParams(req.swagger.params, data.result.id)  : integration.path,
+                    method:     convertMethod(integration.httpMethod),
+                    headers:    headers
+                };
 
-                    makeRequest(
-                        options,
-                        getParams(req.swagger.params, data.result.id)
-                    )
-                        .then(
-                            function(data) {
-                                if (data.success) {
-                                    res.data = data;
-                                    next();
-                                } else {
-                                    res.header({"content-type": "application/json"});
-                                    res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
-                                }
-                            }
-                        );
-                }
-            );
+                makeRequest(
+                    options,
+                    getParams(req.swagger.params, data.result.id)
+                )
+                .then(
+                    function(data) {
+                        if (data.success) {
+                            res.data = data;
+                            next();
+                        } else {
+                            res.header({"content-type": "application/json"});
+                            res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+                        }
+                    }
+                );
+            }
+        );
     } catch (e) {
         next();
     }
@@ -147,8 +147,8 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
 
 function findNode(key, currentNode, maxDepth) {
     var i,
-        currentChild,
-        result;
+    currentChild,
+    result;
     if (maxDepth <= 0) {
         return false;
     }
@@ -168,9 +168,9 @@ function findNode(key, currentNode, maxDepth) {
             if (result !== false) {
                 return result;
             }
-        }
-        // The node has not been found and we have no more options
-        return false;
+    }
+    // The node has not been found and we have no more options
+    return false;
     }
 }
 
