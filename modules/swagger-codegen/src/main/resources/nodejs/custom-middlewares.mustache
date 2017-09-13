@@ -6,6 +6,18 @@ const headers = {
     'Cookie': 'username=api; utoken=manager;',
 };
 
+function decodeBase64AuthenticationToken(b64String){
+    try {
+        const strippedString = b64String.replace("Basic", "").replace(" ", "");
+        const decoded = new Buffer(strippedString, 'base64').toString();
+        const username = decoded.replace(/:.+/, "");
+        const password = decoded.replace(/.+:/, "");
+        return {username: username, pwd: password};
+    } catch (e) {
+        return {username:"", pwd: ""}
+    }
+}
+
 // Authentication Middleware
 module.exports.authenticationMiddleware = function authenticationMiddleware(req, res, next){
     const options = {
@@ -16,48 +28,47 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
         headers: headers
     };
 
-    function decodeBase64AuthenticationToken(b64String){
-        try {
-            const strippedString = b64String.replace("Basic", "").replace(" ", "");
-            const decoded = new Buffer(strippedString, 'base64').toString();
-            const username = decoded.replace(/:.+/, "");
-            const password = decoded.replace(/.+:/, "");
-            return {username: username, pwd: password};
-        } catch (e) {
-            return {username:"", pwd: ""}
-        }
-    }
-
     makeRequest(
         options,
         querystring.stringify(decodeBase64AuthenticationToken(req.header("Authorization")))
-    ).then(
-        function(data){
-            if (data.success) {
-                next();
-            } else {
-                res.header({"content-type": "application/json"});
-                res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
-            }
-        }
     )
+        .catch(
+            function(e){
+                next(e);
+            }
+        )
+        .then(
+            function(data){
+                if (data.success) {
+                    next();
+                } else {
+                    res.header({"content-type": "application/json"});
+                    res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+                }
+            }
+        )
 };
 
-function makeRequest(options, headers) {
+// Convenience Function to Make Requests to the Pure Access
+function makeRequest(options, headers, encoding) {
     var body = "";
     return new Promise(function(resolve, reject){
         const request = http.request(options, (response) => {
-            response.setEncoding('utf8');
+            response.setEncoding(encoding ? encoding : 'utf8');
             response.on('data', (chunk) => {
                 console.log(`BODY: ${chunk}`);
-                body += chunk;
+                if (encoding === "binary"){
+                    body += new Buffer(chunk, 'binary').toString('hex')
+                } else {
+                    body += chunk;
+                }
             });
             response.on('end', function(){
                 var result;
                 try {
                     result = JSON.parse(body);
                 } catch (e) {
-                    result = JSON.parse("{}")
+                    result = body;
                 }
                 resolve(result);
             });
@@ -85,14 +96,14 @@ function convertMethod(method){
     }
 }
 
-// Gateway Middleware
+// Gateway Middleware to Map Request Endpoints to Pure Access Endpoints
 module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     try {
         const integration = req.swagger.operation["x-apigateway-integration"];
 
         function getParams(params, tenantId){
             var result = {};
-            var extra = ""
+            var extra = "";
             Object.keys(params).forEach(function(param){
                 result[param] = req.swagger.params[param].value;
                 if (typeof result[param] === "object"){
@@ -108,7 +119,7 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
             {
                 hostname: integration.hostname,
                 port: integration.port,
-                path: "/getTenantForUser",
+                path: "/getTenantForUser?" + querystring.stringify(decodeBase64AuthenticationToken(req.header("Authorization"))),
                 method: "GET",
                 headers: headers
             }
@@ -127,6 +138,11 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                         options,
                         getParams(req.swagger.params, data.result.id)
                     )
+                        .catch(
+                            function(e){
+                                next(e);
+                            }
+                        )
                         .then(
                             function(data) {
                                 if (data.success) {
@@ -145,6 +161,7 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     }
 };
 
+// Traverse the JSON Response and Find Required Fields
 function findNode(key, currentNode, maxDepth) {
     var i,
         currentChild,
@@ -176,61 +193,165 @@ function findNode(key, currentNode, maxDepth) {
 
 // Parse the Result and Populate Fields
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
+    const integration = req.swagger.operation["x-apigateway-integration"];
     var examples = res.examples;
     var result = res.data.result;
 
     // Conform the Results to the Fields in Model as Defined in the Swagger File
-    const parseResult = function (input) {
+    const parseResult = function (input, async) {
         var result = {};
         if (!input.hasOwnProperty("id")){
             throw new Error();
         }
         return function f(property){
-            result[property] = findNode(property, input, 3);
-            if (result[property] === false) {
-                result[property] = null;
-            } else {
-                result[property] = propertyFormatter(result[property], property);
-            }
-            f.result = result;
+            return new Promise(
+                function(resolve, reject){
+                    try {
+                        result[property] = findNode(property, input, 3);
+                        if (!result[property]) {
+                            result[property] = null;
+                            f.result = result;
+                            resolve(f.result);
+                        } else {
+                            if (async) {
+                                asynchPropertyFormatter(result, property)
+                                    .then(
+                                        function(){
+                                            f.result = result;
+                                            resolve(f.result);
+                                        }
+                                    );
+                            } else {
+                                result[property] = propertyFormatter(result, property);
+                                f.result = result;
+                                resolve(f.result);
+                            }
+                        }
+                    }
+                    catch (e) {
+                        reject(e.toString());
+                    }
+                }
+            )
         }
     };
 
     // Some Properties will Need to Get Transformed. i.e. Image URL is formed from the profileId
     function propertyFormatter(result, property){
-        if (result){
+        if (result[property]){
             switch (property){
                 case "profileId":
-                    result = req.swagger.swaggerObject.host + "/attachment?id="+result; // Make Request to get the Octet Stream Here
+                    if (result[property]) {
+                        result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result; // Make Request to get the Octet Stream Here
+                    }
                     break;
                 default:
                     break;
             }
-            return result;
+            return result[property];
         }
     }
+
+    // Asynchronous Property Formatter
+    function asynchPropertyFormatter(result, property){
+        return new Promise(
+            function(resolve, reject){
+                try {
+                    var promise;
+                    if (result[property]){
+                        switch (property){
+                            case "profileId":
+                                if (result[property]) {
+                                    //result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result[property]; // Make Request to get the Octet Stream Here
+                                    promise = makeRequest(
+                                        {
+                                            hostname: integration.hostname,
+                                            port: integration.port,
+                                            path: "/attachment?id=" + result[property],
+                                            method: "GET",
+                                            headers: headers
+                                        },
+                                        null,
+                                        "binary"
+                                    )
+                                        .catch(
+                                            function(e){
+                                                reject();
+                                            }
+                                        )
+                                        .then(
+                                            function(data){
+                                                result["image"] = data;
+                                                return result;
+                                            }
+                                        );
+                                }
+                                break;
+                            default:
+                                break;
+                        }
+                        if (promise){
+                            promise.then(
+                                function(result){
+                                    resolve(result);
+                                }
+                            )
+                        } else {
+                            resolve(result);
+                        }
+                    }
+                } catch (e) {
+                    reject(e.toString());
+                }
+            }
+        );
+
+    }
+
     try {
-        // Array of Results
-        if (res.examples.constructor === Array){
-            var newResult = [];
-            result.forEach(
-                function(i){
-                    var callback = parseResult(i);
-                    Object.keys(examples[0]).forEach(callback);
-                    newResult.push(callback.result);
+        var returnJson = new Promise(
+            function(resolve, reject){
+                // Array of Results
+                if (res.examples.constructor === Array){
+                    var newResult = [];
+                    var resultPromises = result.map(
+                        function(i){
+                            return new Promise(function(resolve, reject){
+                                try {
+                                    var callback = parseResult(i, false);
+                                    var items = Object.keys(examples[0]).map(callback);
+                                    Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
+                                        resolve(callback.result); // Resolve with a Complete Object
+                                    });
+                                } catch (e) {
+                                    reject(e.toString());
+                                }
+                            });
+                        }
+                    );
+                    Promise.all(resultPromises).then(function(result){
+                        resolve(result);
+                    })
+                }
+                // Single Result
+                else {
+                    var callback = parseResult(result, true);
+                    var items = Object.keys(examples).map(callback);
+                    Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
+                        resolve(callback.result); // Resolve with a Complete Object
+                    });
+                }
+            }
+        );
+        returnJson
+            .then(
+                function(result){
+                    console.log(result);
+                    res.end(JSON.stringify(result));
                 }
             );
-            result = newResult;
-        }
-        // Single Result
-        else {
-            var callback = parseResult(result);
-            Object.keys(examples).forEach(callback);
-            result = callback.result;
-        }
-        res.end(JSON.stringify(result));
     } catch (e) {
-        res.status(499).send(JSON.stringify({"message": "Bad Result"}));
+        res.status(499).send(JSON.stringify({"message": "Bad Result"})); // TODO: Change Response Code
     }
 };
 
