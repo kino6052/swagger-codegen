@@ -1,3 +1,5 @@
+'use strict';
+
 const querystring     = require('querystring');
 const http            = require('http');
 const formData        = require('form-data');
@@ -20,9 +22,11 @@ function decodeBase64AuthenticationToken(b64String){
 
 // Authentication Middleware
 module.exports.authenticationMiddleware = function authenticationMiddleware(req, res, next){
+    const integration = req.swagger.operation["x-apigateway-integration"];
+
     const options = {
-        hostname: req.swagger.swaggerObject.host.replace(/:.+/, ''),
-        port: req.swagger.swaggerObject.host.replace(/.+:/, ''),
+        hostname: integration.hostname,
+        port: integration.port,
         path: "/login",
         method: "POST",
         headers: headers
@@ -49,6 +53,65 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
         )
 };
 
+class RequestHelper {
+    constructor(options, headers, encoding) {
+        this.options     = options;
+        this.headers     = headers;
+        this.encoding    = encoding;
+        this.body        = "";
+        this.result      = "";
+    }
+    chunkCallback(chunk){
+        // console.log(`BODY: ${chunk}`);
+        if (this.encoding === "binary"){
+            this.body += new Buffer(chunk, 'binary').toString('hex');
+        } else {
+            this.body += chunk;
+        }
+    }
+    endCallback(){
+        try {
+            switch (this.encoding){
+                case "binary":
+                    var fileExtension = response.headers['content-disposition'].replace(/.+\./, '');
+                    var b64String= new Buffer(this.body, 'hex').toString('base64');
+                    this.result = "data:image/" + fileExtension + ";base64," + b64String;
+                    break;
+                default:
+                    this.result = JSON.parse(this.body);
+                    break;
+            }
+        } catch (e) {
+            throw new Error(e.message);
+        }
+        this.result = result;
+    }
+    errorCallback(e){
+        console.error(`Problem with Request: ${e.message}`);
+        throw new Error(e.message);
+    }
+    makeRequest(){
+        var self = this;
+        return new Promise(function(resolve, reject){
+            try {
+                const request = http.request(self.options, (response) => {
+                    response.setEncoding(self.encoding ? self.encoding : 'utf8');
+                    response.on('data', self.chunkCallback);
+                    response.on('end', self.endCallback);
+                });
+                request.on('error', self.errorCallback);
+            } catch (e) {
+                reject(e);
+            }
+            if (self.headers){
+                request.write(self.headers)
+            }
+            request.end();
+            resolve(self.result);
+        });
+    }
+}
+
 // Convenience Function to Make Requests to the Pure Access
 function makeRequest(options, headers, encoding) {
     var body = "";
@@ -56,19 +119,25 @@ function makeRequest(options, headers, encoding) {
         const request = http.request(options, (response) => {
             response.setEncoding(encoding ? encoding : 'utf8');
             response.on('data', (chunk) => {
-                console.log(`BODY: ${chunk}`);
+                // console.log(`BODY: ${chunk}`);
                 if (encoding === "binary"){
-                    body += new Buffer(chunk, 'binary').toString('hex')
+                    body += new Buffer(chunk, 'binary').toString('hex');
                 } else {
                     body += chunk;
                 }
             });
-            response.on('end', function(){
+            response.on('end', function(t){
                 var result;
                 try {
-                    result = JSON.parse(body);
+                    if (encoding === "binary"){
+                        var fileExtension = response.headers['content-disposition'].replace(/.+\./, '');
+                        var b64String= new Buffer(body, 'hex').toString('base64');
+                        result = "data:image/" + fileExtension + ";base64," + b64String;
+                    } else {
+                        result = JSON.parse(body);
+                    }
                 } catch (e) {
-                    result = body;
+                    reject(e.toString());
                 }
                 resolve(result);
             });
@@ -114,6 +183,51 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
             result.tenantId = tenantId;
             return querystring.stringify(result) + "&" + extra;
         }
+
+        var getTenantForUser = new RequestHelper(
+            {
+                hostname: integration.hostname,
+                port: integration.port,
+                path: "/getTenantForUser?" + querystring.stringify(decodeBase64AuthenticationToken(req.header("Authorization"))),
+                method: "GET",
+                headers: headers
+            }
+        );
+
+        // getTenantForUser
+        //     .makeRequest()
+        //     .then(
+        //         function(data){
+        //             var gatewayRequest = new RequestHelper(
+        //                 {
+        //                     hostname:   integration.hostname,
+        //                     port:       integration.port,
+        //                     path:       integration.httpMethod === "GET" ? integration.path + "?" + getParams(req.swagger.params, data.result.id)  : integration.path,
+        //                     method:     convertMethod(integration.httpMethod),
+        //                     headers:    headers
+        //                 },
+        //                 getParams(req.swagger.params, data.result.id)
+        //             );
+        //             gatewayRequest
+        //                 .makeRequest()
+        //                 .catch(
+        //                     function(e){
+        //                         next(e);
+        //                     }
+        //                 )
+        //                 .then(
+        //                     function(data) {
+        //                         if (data.success) {
+        //                             res.data = data;
+        //                             next();
+        //                         } else {
+        //                             res.header({"content-type": "application/json"});
+        //                             res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+        //                         }
+        //                     }
+        //                 );
+        //         }
+        //     );
 
         makeRequest(
             {
@@ -190,6 +304,170 @@ function findNode(key, currentNode, maxDepth) {
         return false;
     }
 }
+
+// Parse the POST Body and Populate Fields
+module.exports.preFormatMiddleware = function preFormatMiddleware(req, res, next){
+    const integration = req.swagger.operation["x-apigateway-integration"];
+    var examples = res.examples;
+    var result = res.data.result;
+
+    // Conform the Results to the Fields in Model as Defined in the Swagger File
+    const parseResult = function (input, async) {
+        var result = {};
+        if (!input.hasOwnProperty("id")){
+            throw new Error();
+        }
+        return function f(property){
+            return new Promise(
+                function(resolve, reject){
+                    try {
+                        result[property] = findNode(property, input, 3);
+                        if (!result[property]) {
+                            result[property] = null;
+                            f.result = result;
+                            resolve(f.result);
+                        } else {
+                            if (async) {
+                                asynchPropertyFormatter(result, property)
+                                    .then(
+                                        function(){
+                                            f.result = result;
+                                            resolve(f.result);
+                                        }
+                                    );
+                            } else {
+                                result[property] = propertyFormatter(result, property);
+                                f.result = result;
+                                resolve(f.result);
+                            }
+                        }
+                    }
+                    catch (e) {
+                        reject(e.toString());
+                    }
+                }
+            )
+        }
+    };
+
+    // Some Properties will Need to Get Transformed. i.e. Image URL is formed from the profileId
+    function propertyFormatter(result, property){
+        if (result[property]){
+            switch (property){
+                case "profileId":
+                    if (result[property]) {
+                        result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result; // Make Request to get the Octet Stream Here
+                    }
+                    break;
+                default:
+                    break;
+            }
+            return result[property];
+        }
+    }
+
+    // Asynchronous Property Formatter
+    function asynchPropertyFormatter(result, property){
+        return new Promise(
+            function(resolve, reject){
+                try {
+                    var promise;
+                    if (result[property]){
+                        switch (property){
+                            case "profileId":
+                                if (result[property]) {
+                                    //result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result[property]; // Make Request to get the Octet Stream Here
+                                    promise = makeRequest(
+                                        {
+                                            hostname: integration.hostname,
+                                            port: integration.port,
+                                            path: "/attachment?id=" + result[property],
+                                            method: "GET",
+                                            headers: headers,
+                                            req: req
+                                        },
+                                        null,
+                                        "binary"
+                                    )
+                                        .catch(
+                                            function(e){
+                                                reject();
+                                            }
+                                        )
+                                        .then(
+                                            function(data){
+                                                result["image"] = data;
+                                                return result;
+                                            }
+                                        );
+                                }
+                                break;
+                            default:
+                                break;
+                        }
+                        if (promise){
+                            promise.then(
+                                function(result){
+                                    resolve(result);
+                                }
+                            )
+                        } else {
+                            resolve(result);
+                        }
+                    }
+                } catch (e) {
+                    reject(e.toString());
+                }
+            }
+        );
+
+    }
+
+    try {
+        var returnJson = new Promise(
+            function(resolve, reject){
+                // Array of Results
+                if (res.examples.constructor === Array){
+                    var newResult = [];
+                    var resultPromises = result.map(
+                        function(i){
+                            return new Promise(function(resolve, reject){
+                                try {
+                                    var callback = parseResult(i, false);
+                                    var items = Object.keys(examples[0]).map(callback);
+                                    Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
+                                        resolve(callback.result); // Resolve with a Complete Object
+                                    });
+                                } catch (e) {
+                                    reject(e.toString());
+                                }
+                            });
+                        }
+                    );
+                    Promise.all(resultPromises).then(function(result){
+                        resolve(result);
+                    })
+                }
+                // Single Result
+                else {
+                    var callback = parseResult(result, true);
+                    var items = Object.keys(examples).map(callback);
+                    Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
+                        resolve(callback.result); // Resolve with a Complete Object
+                    });
+                }
+            }
+        );
+        returnJson
+            .then(
+                function(result){
+                    res.end(JSON.stringify(result));
+                }
+            );
+    } catch (e) {
+        res.status(499).send(JSON.stringify({"message": "Bad Result"})); // TODO: Change Response Code
+    }
+};
 
 // Parse the Result and Populate Fields
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
@@ -269,7 +547,8 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
                                             port: integration.port,
                                             path: "/attachment?id=" + result[property],
                                             method: "GET",
-                                            headers: headers
+                                            headers: headers,
+                                            req: req
                                         },
                                         null,
                                         "binary"
@@ -346,7 +625,6 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
         returnJson
             .then(
                 function(result){
-                    console.log(result);
                     res.end(JSON.stringify(result));
                 }
             );
