@@ -8,6 +8,10 @@ const headers = {
     'Cookie': 'username=api; utoken=manager;',
 };
 
+function sendErrorResponse(res, e) {
+    res.status(499).send(JSON.stringify({"message": e.message})); // TODO: Change Response Code
+}
+
 function decodeBase64AuthenticationToken(b64String){
     try {
         const strippedString = b64String.replace("Basic", "").replace(" ", "");
@@ -165,34 +169,38 @@ function convertMethod(method){
     }
 }
 
+function getParams(params, tenantId){
+    try {
+        var result = {};
+        var extra = "";
+        Object.keys(params).forEach(function(param){
+            result[param] = params[param].value;
+            if (typeof result[param] === "object"){
+                extra += querystring.stringify(result[param]);
+                delete result[param];
+            }
+        });
+        result.tenantId = tenantId;
+        return querystring.stringify(result) + "&" + extra;
+    } catch (e) {
+        throw new Error("Couldn't Get Params");
+    }
+}
+
 // Gateway Middleware to Map Request Endpoints to Pure Access Endpoints
 module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     try {
         const integration = req.swagger.operation["x-apigateway-integration"];
 
-        function getParams(params, tenantId){
-            var result = {};
-            var extra = "";
-            Object.keys(params).forEach(function(param){
-                result[param] = req.swagger.params[param].value;
-                if (typeof result[param] === "object"){
-                    extra += querystring.stringify(result[param]);
-                    delete result[param];
-                }
-            });
-            result.tenantId = tenantId;
-            return querystring.stringify(result) + "&" + extra;
-        }
-
-        var getTenantForUser = new RequestHelper(
-            {
-                hostname: integration.hostname,
-                port: integration.port,
-                path: "/getTenantForUser?" + querystring.stringify(decodeBase64AuthenticationToken(req.header("Authorization"))),
-                method: "GET",
-                headers: headers
-            }
-        );
+        // var getTenantForUser = new RequestHelper(
+        //     {
+        //         hostname: integration.hostname,
+        //         port: integration.port,
+        //         path: "/getTenantForUser?" + querystring.stringify(decodeBase64AuthenticationToken(req.header("Authorization"))),
+        //         method: "GET",
+        //         headers: headers
+        //     }
+        // );
 
         // getTenantForUser
         //     .makeRequest()
@@ -305,168 +313,73 @@ function findNode(key, currentNode, maxDepth) {
     }
 }
 
+function updateImageForUser(req, parsedImage){
+    const integration = req.swagger.operation["x-apigateway-integration"];
+    const headers = {
+        'Content-Type': 'application/form-data',
+        'Cookie': 'username=api; utoken=manager;',
+    };
+    return new Promise(
+        function(resolve, reject){
+            try {
+                makeRequest(
+                    {
+                        hostname: integration.hostname,
+                        port: integration.port,
+                        path: "/uploadFile",
+                        method: "POST",
+                        headers: headers,
+                        req: req
+                    },
+                    querystring.stringify({file: parsedImage})
+                )
+                    .then(
+                        function(data){
+                            console.log(data);
+                            resolve(data);
+                        }
+                    )
+            } catch (e) {
+                reject(e.message);
+            }
+        }
+    )
+}
+
+function parseBase64ImageToBinary(image){
+    var image = image.replace(/data.+,/, '');
+    var binaryImage = new Buffer(image, 'base64').toString('binary');
+    return binaryImage;
+}
+
 // Parse the POST Body and Populate Fields
 module.exports.preFormatMiddleware = function preFormatMiddleware(req, res, next){
-    const integration = req.swagger.operation["x-apigateway-integration"];
-    var examples = res.examples;
-    var result = res.data.result;
-
-    // Conform the Results to the Fields in Model as Defined in the Swagger File
-    const parseResult = function (input, async) {
-        var result = {};
-        if (!input.hasOwnProperty("id")){
-            throw new Error();
-        }
-        return function f(property){
-            return new Promise(
-                function(resolve, reject){
-                    try {
-                        result[property] = findNode(property, input, 3);
-                        if (!result[property]) {
-                            result[property] = null;
-                            f.result = result;
-                            resolve(f.result);
-                        } else {
-                            if (async) {
-                                asynchPropertyFormatter(result, property)
-                                    .then(
-                                        function(){
-                                            f.result = result;
-                                            resolve(f.result);
-                                        }
-                                    );
-                            } else {
-                                result[property] = propertyFormatter(result, property);
-                                f.result = result;
-                                resolve(f.result);
-                            }
-                        }
-                    }
-                    catch (e) {
-                        reject(e.toString());
-                    }
-                }
-            )
-        }
-    };
-
-    // Some Properties will Need to Get Transformed. i.e. Image URL is formed from the profileId
-    function propertyFormatter(result, property){
-        if (result[property]){
-            switch (property){
-                case "profileId":
-                    if (result[property]) {
-                        result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result; // Make Request to get the Octet Stream Here
-                    }
-                    break;
-                default:
-                    break;
-            }
-            return result[property];
-        }
-    }
-
-    // Asynchronous Property Formatter
-    function asynchPropertyFormatter(result, property){
-        return new Promise(
-            function(resolve, reject){
-                try {
-                    var promise;
-                    if (result[property]){
-                        switch (property){
-                            case "profileId":
-                                if (result[property]) {
-                                    //result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result[property]; // Make Request to get the Octet Stream Here
-                                    promise = makeRequest(
-                                        {
-                                            hostname: integration.hostname,
-                                            port: integration.port,
-                                            path: "/attachment?id=" + result[property],
-                                            method: "GET",
-                                            headers: headers,
-                                            req: req
-                                        },
-                                        null,
-                                        "binary"
-                                    )
-                                        .catch(
-                                            function(e){
-                                                reject();
-                                            }
-                                        )
-                                        .then(
-                                            function(data){
-                                                result["image"] = data;
-                                                return result;
-                                            }
-                                        );
-                                }
-                                break;
-                            default:
-                                break;
-                        }
-                        if (promise){
-                            promise.then(
-                                function(result){
-                                    resolve(result);
-                                }
-                            )
-                        } else {
-                            resolve(result);
-                        }
-                    }
-                } catch (e) {
-                    reject(e.toString());
-                }
-            }
-        );
-
-    }
-
     try {
-        var returnJson = new Promise(
-            function(resolve, reject){
-                // Array of Results
-                if (res.examples.constructor === Array){
-                    var newResult = [];
-                    var resultPromises = result.map(
-                        function(i){
-                            return new Promise(function(resolve, reject){
-                                try {
-                                    var callback = parseResult(i, false);
-                                    var items = Object.keys(examples[0]).map(callback);
-                                    Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
-                                        resolve(callback.result); // Resolve with a Complete Object
-                                    });
-                                } catch (e) {
-                                    reject(e.toString());
-                                }
-                            });
-                        }
-                    );
-                    Promise.all(resultPromises).then(function(result){
-                        resolve(result);
-                    })
+        const integration = req.swagger.operation["x-apigateway-integration"];
+        var params = req.swagger.params;
+        switch (req.swagger.operation.operationId){
+            case "userPATCH":
+                var JsonPatch = JSON.parse(params.JsonPatch.value["JsonPatch"]);
+                if (JsonPatch.image) {
+                    console.log(JsonPatch.image)
+                    var image = parseBase64ImageToBinary(JsonPatch.image);
+                    updateImageForUser(req, image)
+                        .then(
+                            function(updateImageData){
+                                req.swagger.params.JsonPatch.value.profileId    = updateImageData.profileId; // After Image Upload ProfileId Get's Updated
+                                next();
+                            }
+                        )
                 }
-                // Single Result
-                else {
-                    var callback = parseResult(result, true);
-                    var items = Object.keys(examples).map(callback);
-                    Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
-                        resolve(callback.result); // Resolve with a Complete Object
-                    });
-                }
-            }
-        );
-        returnJson
-            .then(
-                function(result){
-                    res.end(JSON.stringify(result));
-                }
-            );
+                break;
+            default:
+                console.log(req.swagger);
+                break;
+        }
     } catch (e) {
-        res.status(499).send(JSON.stringify({"message": "Bad Result"})); // TODO: Change Response Code
+        console.log("ERROR")
     }
+    next();
 };
 
 // Parse the Result and Populate Fields
@@ -478,7 +391,7 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
     // Conform the Results to the Fields in Model as Defined in the Swagger File
     const parseResult = function (input, async) {
         var result = {};
-        if (!input.hasOwnProperty("id")){
+        if (!input || !input.hasOwnProperty("id")){
             throw new Error();
         }
         return function f(property){
@@ -614,22 +527,31 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
                 }
                 // Single Result
                 else {
-                    var callback = parseResult(result, true);
-                    var items = Object.keys(examples).map(callback);
-                    Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
-                        resolve(callback.result); // Resolve with a Complete Object
-                    });
+                    try {
+                        var callback = parseResult(result, true);
+                        var items = Object.keys(examples).map(callback);
+                        Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
+                            resolve(callback.result); // Resolve with a Complete Object
+                        });
+                    } catch (e) {
+                        reject(e);
+                    }
                 }
             }
         );
         returnJson
+            .catch(
+                function(e){
+                    sendErrorResponse(res, e);
+                }
+            )
             .then(
                 function(result){
                     res.end(JSON.stringify(result));
                 }
             );
     } catch (e) {
-        res.status(499).send(JSON.stringify({"message": "Bad Result"})); // TODO: Change Response Code
+        sendErrorResponse(res, e);; // TODO: Change Response Code
     }
 };
 
