@@ -17,12 +17,12 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
     RequestChain.process([
         [
             {
-                hostname: integration.hostname,
-                port: integration.port,
-                path: "/login",
-                method: "POST",
-                headers: headers,
-                write: authorizationHeader
+                hostname:   integration.hostname,
+                port:       integration.port,
+                path:       "/login",
+                method:     "POST",
+                headers:    headers,
+                write:      authorizationHeader
             },
             function(data){
                 if (data.success) {
@@ -45,27 +45,23 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
         RequestChain.process([
             [
                 {
-                    hostname: integration.hostname,
-                    port: integration.port,
-                    path: "/getTenantForUser?" + authorizationHeader,
-                    method: "GET",
-                    headers: headers,
-                    fn: function(consumeMe){
-
-                    }
+                    hostname    :   integration.hostname,
+                    port        :   integration.port,
+                    path        :   "/getTenantForUser?" + authorizationHeader,
+                    method      :   "GET",
+                    headers     :   headers,
                 },
                 function(data){
-                    console.log(data);
                     return data;
                 }
             ],
             [
                 {
-                    hostname:   integration.hostname,
-                    port:       integration.port,
-                    method:     convertMethod(integration.httpMethod),
-                    headers:    headers,
-                    fn: function(data){
+                    hostname    :   integration.hostname,
+                    port        :   integration.port,
+                    method      :   convertMethod(integration.httpMethod),
+                    headers     :   headers,
+                    fn: function(data){ // Function for Processing Header Fields Based on the Returned Values from the Previous Request (/getTenantForUser)
                         const tenantId  = data.result.id;
                         this.write      = getParams(req.swagger.params, data.result.id);
                         this.path       = integration.path;
@@ -74,6 +70,7 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                                 this.path = integration.path + "?" + getParams(req.swagger.params, tenantId);
                                 break;
                         }
+                        return data;
                     }
                 },
                 function(data) {
@@ -81,9 +78,9 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                         res.data = data;
                         next();
                     } else {
-                        res.header({"content-type": "application/json"});
                         sendErrorResponse(new Error("Unauthenticated"), 403)
                     }
+                    return data;
                 }
             ]
         ]);
@@ -95,90 +92,64 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
 // Parse the Result and Populate Fields
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
     const integration   = req.swagger.operation["x-apigateway-integration"];
+    const isArray       = res.examples.constructor === Array;
     var examples        = res.examples;
     var result          = res.data.result;
-    const isArray       = res.examples.constructor === Array;
+
+    var callback = function(resource){
+        var model = isArray ? res.examples[0] : res.examples;
+        return new ResourceConverter(resource, model).preformat();
+    };
+
+    var finalCallback = function (data) {
+        res.end(JSON.stringify(data));
+    }
+
+
     try {
-        var returnJson = new Promise(
-            function(resolve, reject){
-                // Array of Results
-                if (isArray){
-                    var resultPromises = result.map(
-                        function(i){
-                            return new Promise(function(resolve, reject){
-                                try {
-                                    var callback = parseResult(i, false);
-                                    var items = Object.keys(examples[0]).map(callback);
-                                    Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
-                                        resolve(callback.result); // Resolve with a Complete Object
-                                    });
-                                } catch (e) {
-                                    reject(e.toString());
-                                }
-                            });
-                        }
-                    );
-                    Promise.all(resultPromises).then(function(result){
-                        resolve(result);
-                    })
-                }
-                // Single Result
-                else {
-                    try {
-                        var callback = parseResult(result, true);
-                        var items = Object.keys(examples).map(callback);
-                        Promise.all(items).then(function(){ // Object Needs to be Built by Going through Every Property
-                            resolve(callback.result); // Resolve with a Complete Object
-                        });
-                    } catch (e) {
-                        reject(e);
-                    }
-                }
-            }
-        );
-        returnJson
-            .catch(
-                function(e){
-                    sendErrorResponse(res, e);
-                }
-            )
-            .then(
-                function(result){
-                    res.end(JSON.stringify(result));
-                }
-            );
+        // Array of Results
+        if (isArray){
+            processArray(result, callback).then(finalCallback)
+        }
+        // Single Result
+        else {
+            callback(result).then(finalCallback)
+        }
     } catch (e) {
         sendErrorResponse(res, e); // TODO: Change Response Code
     }
 };
 
 
+///////////////////////////////////////
+// Convenience Classes and Functions //
+///////////////////////////////////////
 
-// Convenience Functions
+// Throws Errors Specific to Requests and Responses
 class RequestChain {
-    process(requestArray){
-        async function t(){
-            var self = this;
-            var consumeMe = {};
-            var promiseArray = [];
-            for (const request of requestArray) {
-                function(){
-                    const options = request[0];
-                    const callback = request[1];
-                    if (options.hasOwnProperty("fn")) {
-                        options.fn(consumeMe);
+    static process(requestArray){ //Sequential Promise Resolution
+        var self = this;
+        requestArray.reduce(
+            function(promise, request){
+                return promise.then(
+                    function(result){
+                        const options = request[0];
+                        const callback = request[1];
+                        if (options.hasOwnProperty("fn")) {
+                            options.fn(result[result.length-1]);
+                        }
+                        return self.makeRequest(options)
+                            .then(callback)
+                            .then(
+                                Array.prototype.concat.bind(result) // Process Data and Append it To List;
+                            );
                     }
-                    await self.makeRequest(options)
-                        .then(
-                            function (data) {
-                                consumeMe = callback(data);
-                                resolve();
-                            }
-                        )
-                }
-            }
-        };
+                );
+            },
+            Promise.resolve([])
+        )
     }
+
     // Convenience Function to Make Requests to the Pure Access
     static makeRequest(options) {
         var body = "";
@@ -235,6 +206,21 @@ function convertMethod(method){
         case "PUT":
             return "POST";
     }
+}
+
+function processArray(array, callback){
+    var resultPromises = array.map(
+        function(item){
+            return callback(item);
+        }
+    );
+    return Promise
+        .all(resultPromises)
+        .then(
+            function(result){
+                return result;
+            }
+        )
 }
 
 function getParams(params, tenantId){
@@ -298,73 +284,48 @@ function findNode(key, currentNode, maxDepth) {
     }
 }
 
-// Some Properties will Need to Get Transformed. i.e. Image URL is formed from the profileId
-function propertyFormatter(result, property){
-    if (result[property]){
-        switch (property){
-            case "profileId":
-                if (result[property]) {
-                    result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result; // Make Request to get the Octet Stream Here
-                }
-                break;
-            default:
-                break;
-        }
-        return result[property];
+class ResourceConverter {
+    constructor(resource, model){
+        this.resource   = resource;
+        this.model      = model;
+        this.prune();
+        this.normalize();
     }
-}
 
-// Conform the Results to the Fields in Model as Defined in the Swagger File
-const parseResult = function (input, async) {
-    var result = {};
-    if (!input || !input.hasOwnProperty("id")){
-        throw new Error();
-    }
-    return function f(property){
-        return new Promise(
-            function(resolve, reject){
-                try {
-                    result[property] = findNode(property, input, 3);
-                    if (!result[property]) {
-                        result[property] = null;
-                        f.result = result;
-                        resolve(f.result);
-                    } else {
-                        if (async) {
-                            asynchPropertyFormatter(result, property)
-                                .then(
-                                    function(){
-                                        f.result = result;
-                                        resolve(f.result);
-                                    }
-                                );
-                        } else {
-                            result[property] = propertyFormatter(result, property);
-                            f.result = result;
-                            resolve(f.result);
-                        }
-                    }
-                }
-                catch (e) {
-                    reject(e.toString());
+    // Removes Properties not in Model from the Resource
+    prune(){
+        var self = this;
+        Object.keys(self.resource).forEach(
+            function(key){
+                if (self.model[key] === undefined) {
+                    delete self.resource[key];
                 }
             }
         )
     }
-};
 
-// Asynchronous Property Formatter
-function asynchPropertyFormatter(result, property){
-    return new Promise(
-        function(resolve, reject){
-            try {
-                var promise;
-                if (result[property]){
-                    switch (property){
-                        case "profileId":
-                            if (result[property]) {
+    // Adds Properties not Found in the Original Resources, but the Ones Specified in Model
+    normalize(){
+        var self = this;
+        Object.keys(self.model).forEach(
+            function(key){
+                if (self.resource[key] === undefined) {
+                    self.resource[key] = null;
+                }
+            }
+        )
+    }
+
+    preformat(){
+        var self = this;
+        return new Promise(
+            function(resolve, reject){
+                Object.keys(self.model).forEach(
+                    function(field){
+                        switch (field){
+                            case "profileId":
                                 //result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result[property]; // Make Request to get the Octet Stream Here
-                                RequestChain.makeRequest(
+                                return RequestChain.makeRequest(
                                     {
                                         hostname:   integration.hostname,
                                         port:       integration.port,
@@ -376,26 +337,23 @@ function asynchPropertyFormatter(result, property){
                                 )
                                     .catch(
                                         function(e){
-                                            reject();
+                                            reject(e);
                                         }
                                     )
                                     .then(
                                         function(data){
-                                            result["image"] = data;
-                                            return result;
+                                            this.resource["image"] = data;
+                                            resolve(self.resource);
                                         }
                                     );
-                            }
-                            break;
-                        default:
-                            break;
+                                break;
+                            default:
+                                resolve(self.resource);
+                                break;
+                        }
                     }
-                    resolve(result);
-                }
-            } catch (e) {
-                reject(e.toString());
+                );
             }
-        }
-    );
-
+        );
+    }
 }
