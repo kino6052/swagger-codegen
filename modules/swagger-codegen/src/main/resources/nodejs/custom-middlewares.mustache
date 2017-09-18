@@ -2,510 +2,107 @@
 
 const querystring     = require('querystring');
 const http            = require('http');
-const formData        = require('form-data');
 const headers = {
     'Content-Type': 'application/x-www-form-urlencoded',
     'Cookie': 'username=api; utoken=manager;',
 };
 
-function sendErrorResponse(res, e) {
-    res.status(499).send(JSON.stringify({"message": e.message})); // TODO: Change Response Code
-}
-
-function decodeBase64AuthenticationToken(b64String){
-    try {
-        const strippedString = b64String.replace("Basic", "").replace(" ", "");
-        const decoded = new Buffer(strippedString, 'base64').toString();
-        const username = decoded.replace(/:.+/, "");
-        const password = decoded.replace(/.+:/, "");
-        return {username: username, pwd: password};
-    } catch (e) {
-        return {username:"", pwd: ""}
-    }
-}
 
 // Authentication Middleware
 module.exports.authenticationMiddleware = function authenticationMiddleware(req, res, next){
-    const integration = req.swagger.operation["x-apigateway-integration"];
-
-    const options = {
-        hostname: integration.hostname,
-        port: integration.port,
-        path: "/login",
-        method: "POST",
-        headers: headers
-    };
-
-    makeRequest(
-        options,
-        querystring.stringify(decodeBase64AuthenticationToken(req.header("Authorization")))
-    )
-        .catch(
-            function(e){
-                next(e);
-            }
-        )
-        .then(
+    const integration                   = req.swagger.operation["x-apigateway-integration"];
+    const authorizationHeaderRaw        = req.header("Authorization");
+    const authorizationHeaderDecoded    = decodeBase64AuthenticationToken(authorizationHeaderRaw);
+    const authorizationHeader           = querystring.stringify(authorizationHeaderDecoded);
+    RequestChain.process([
+        [
+            {
+                hostname: integration.hostname,
+                port: integration.port,
+                path: "/login",
+                method: "POST",
+                headers: headers,
+                write: authorizationHeader
+            },
             function(data){
                 if (data.success) {
                     next();
                 } else {
-                    res.header({"content-type": "application/json"});
-                    res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
+                    sendErrorResponse(new Error("Unauthenticated"), 403)
                 }
             }
-        )
+        ]
+    ]);
 };
-
-class RequestHelper {
-    constructor(options, headers, encoding) {
-        this.options     = options;
-        this.headers     = headers;
-        this.encoding    = encoding;
-        this.body        = "";
-        this.result      = "";
-    }
-    chunkCallback(chunk){
-        // console.log(`BODY: ${chunk}`);
-        if (this.encoding === "binary"){
-            this.body += new Buffer(chunk, 'binary').toString('hex');
-        } else {
-            this.body += chunk;
-        }
-    }
-    endCallback(){
-        try {
-            switch (this.encoding){
-                case "binary":
-                    var fileExtension = response.headers['content-disposition'].replace(/.+\./, '');
-                    var b64String= new Buffer(this.body, 'hex').toString('base64');
-                    this.result = "data:image/" + fileExtension + ";base64," + b64String;
-                    break;
-                default:
-                    this.result = JSON.parse(this.body);
-                    break;
-            }
-        } catch (e) {
-            throw new Error(e.message);
-        }
-        this.result = result;
-    }
-    errorCallback(e){
-        console.error(`Problem with Request: ${e.message}`);
-        throw new Error(e.message);
-    }
-    makeRequest(){
-        var self = this;
-        return new Promise(function(resolve, reject){
-            try {
-                const request = http.request(self.options, (response) => {
-                    response.setEncoding(self.encoding ? self.encoding : 'utf8');
-                    response.on('data', self.chunkCallback);
-                    response.on('end', self.endCallback);
-                });
-                request.on('error', self.errorCallback);
-            } catch (e) {
-                reject(e);
-            }
-            if (self.headers){
-                request.write(self.headers)
-            }
-            request.end();
-            resolve(self.result);
-        });
-    }
-}
-
-// Convenience Function to Make Requests to the Pure Access
-function makeRequest(options, headers, encoding) {
-    var body = "";
-    return new Promise(function(resolve, reject){
-        const request = http.request(options, (response) => {
-            response.setEncoding(encoding ? encoding : 'utf8');
-            response.on('data', (chunk) => {
-                // console.log(`BODY: ${chunk}`);
-                if (encoding === "binary"){
-                    body += new Buffer(chunk, 'binary').toString('hex');
-                } else {
-                    body += chunk;
-                }
-            });
-            response.on('end', function(t){
-                var result;
-                try {
-                    if (encoding === "binary"){
-                        var fileExtension = response.headers['content-disposition'].replace(/.+\./, '');
-                        var b64String= new Buffer(body, 'hex').toString('base64');
-                        result = "data:image/" + fileExtension + ";base64," + b64String;
-                    } else {
-                        result = JSON.parse(body);
-                    }
-                } catch (e) {
-                    reject(e.toString());
-                }
-                resolve(result);
-            });
-        });
-        request.on('error', (e) => {
-            console.error(`Problem with Request: ${e.message}`);
-            reject();
-        });
-        if (headers){
-            request.write(headers)
-        }
-        request.end();
-    });
-
-}
-
-function convertMethod(method){
-    switch (method){
-        case "GET":
-            return "GET";
-        case "POST":
-        case "PATCH":
-        case "PUT":
-            return "POST";
-    }
-}
-
-function getParams(params, tenantId){
-    try {
-        var result = {};
-        var extra = "";
-        Object.keys(params).forEach(function(param){
-            result[param] = params[param].value;
-            if (typeof result[param] === "object"){
-                extra += querystring.stringify(result[param]);
-                delete result[param];
-            }
-        });
-        result.tenantId = tenantId;
-        return querystring.stringify(result) + "&" + extra;
-    } catch (e) {
-        throw new Error("Couldn't Get Params");
-    }
-}
 
 // Gateway Middleware to Map Request Endpoints to Pure Access Endpoints
 module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     try {
-        const integration = req.swagger.operation["x-apigateway-integration"];
+        const integration                   = req.swagger.operation["x-apigateway-integration"];
+        const authorizationHeaderRaw        = req.header("Authorization");
+        const authorizationHeaderDecoded    = decodeBase64AuthenticationToken(authorizationHeaderRaw);
+        const authorizationHeader           = querystring.stringify(authorizationHeaderDecoded);
+        RequestChain.process([
+            [
+                {
+                    hostname: integration.hostname,
+                    port: integration.port,
+                    path: "/getTenantForUser?" + authorizationHeader,
+                    method: "GET",
+                    headers: headers,
+                    fn: function(consumeMe){
 
-        // var getTenantForUser = new RequestHelper(
-        //     {
-        //         hostname: integration.hostname,
-        //         port: integration.port,
-        //         path: "/getTenantForUser?" + querystring.stringify(decodeBase64AuthenticationToken(req.header("Authorization"))),
-        //         method: "GET",
-        //         headers: headers
-        //     }
-        // );
-
-        // getTenantForUser
-        //     .makeRequest()
-        //     .then(
-        //         function(data){
-        //             var gatewayRequest = new RequestHelper(
-        //                 {
-        //                     hostname:   integration.hostname,
-        //                     port:       integration.port,
-        //                     path:       integration.httpMethod === "GET" ? integration.path + "?" + getParams(req.swagger.params, data.result.id)  : integration.path,
-        //                     method:     convertMethod(integration.httpMethod),
-        //                     headers:    headers
-        //                 },
-        //                 getParams(req.swagger.params, data.result.id)
-        //             );
-        //             gatewayRequest
-        //                 .makeRequest()
-        //                 .catch(
-        //                     function(e){
-        //                         next(e);
-        //                     }
-        //                 )
-        //                 .then(
-        //                     function(data) {
-        //                         if (data.success) {
-        //                             res.data = data;
-        //                             next();
-        //                         } else {
-        //                             res.header({"content-type": "application/json"});
-        //                             res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
-        //                         }
-        //                     }
-        //                 );
-        //         }
-        //     );
-
-        makeRequest(
-            {
-                hostname: integration.hostname,
-                port: integration.port,
-                path: "/getTenantForUser?" + querystring.stringify(decodeBase64AuthenticationToken(req.header("Authorization"))),
-                method: "GET",
-                headers: headers
-            }
-        )
-            .then(
+                    }
+                },
                 function(data){
-                    var options = {
-                        hostname:   integration.hostname,
-                        port:       integration.port,
-                        path:       integration.httpMethod === "GET" ? integration.path + "?" + getParams(req.swagger.params, data.result.id)  : integration.path,
-                        method:     convertMethod(integration.httpMethod),
-                        headers:    headers
-                    };
-
-                    makeRequest(
-                        options,
-                        getParams(req.swagger.params, data.result.id)
-                    )
-                        .catch(
-                            function(e){
-                                next(e);
-                            }
-                        )
-                        .then(
-                            function(data) {
-                                if (data.success) {
-                                    res.data = data;
-                                    next();
-                                } else {
-                                    res.header({"content-type": "application/json"});
-                                    res.status(403).send(JSON.stringify({"message": "Unauthenticated"}));
-                                }
-                            }
-                        );
+                    console.log(data);
+                    return data;
                 }
-            );
-    } catch (e) {
-        next();
-    }
-};
-
-// Traverse the JSON Response and Find Required Fields
-function findNode(key, currentNode, maxDepth) {
-    var i,
-        currentChild,
-        result;
-    if (maxDepth <= 0) {
-        return false;
-    }
-    if (currentNode.hasOwnProperty(key)) {
-        return currentNode[key];
-    } else {
-        // Use a for loop instead of forEach to avoid nested functions
-        // Otherwise "return" will not work properly
-        for (i = 0; i < Object.keys(currentNode).length; i += 1) {
-            currentChild = currentNode[Object.keys(currentNode)[i]];
-            if (currentChild === null) {
-                continue;
-            }
-            // Search in the current child
-            result = findNode(key, currentChild, maxDepth - 1);
-            // Return the result if the node has been found
-            if (result !== false) {
-                return result;
-            }
-        }
-        // The node has not been found and we have no more options
-        return false;
-    }
-}
-
-function updateImageForUser(req, parsedImage){
-    const integration = req.swagger.operation["x-apigateway-integration"];
-    const headers = {
-        'Content-Type': 'application/form-data',
-        'Cookie': 'username=api; utoken=manager;',
-    };
-    return new Promise(
-        function(resolve, reject){
-            try {
-                makeRequest(
-                    {
-                        hostname: integration.hostname,
-                        port: integration.port,
-                        path: "/uploadFile",
-                        method: "POST",
-                        headers: headers,
-                        req: req
-                    },
-                    querystring.stringify({file: parsedImage})
-                )
-                    .then(
-                        function(data){
-                            console.log(data);
-                            resolve(data);
+            ],
+            [
+                {
+                    hostname:   integration.hostname,
+                    port:       integration.port,
+                    method:     convertMethod(integration.httpMethod),
+                    headers:    headers,
+                    fn: function(data){
+                        const tenantId  = data.result.id;
+                        this.write      = getParams(req.swagger.params, data.result.id);
+                        this.path       = integration.path;
+                        switch (integration.httpMethod){
+                            case "GET":
+                                this.path = integration.path + "?" + getParams(req.swagger.params, tenantId);
+                                break;
                         }
-                    )
-            } catch (e) {
-                reject(e.message);
-            }
-        }
-    )
-}
-
-function parseBase64ImageToBinary(image){
-    var image = image.replace(/data.+,/, '');
-    var binaryImage = new Buffer(image, 'base64').toString('binary');
-    return binaryImage;
-}
-
-// Parse the POST Body and Populate Fields
-module.exports.preFormatMiddleware = function preFormatMiddleware(req, res, next){
-    try {
-        const integration = req.swagger.operation["x-apigateway-integration"];
-        var params = req.swagger.params;
-        switch (req.swagger.operation.operationId){
-            case "userPATCH":
-                var JsonPatch = JSON.parse(params.JsonPatch.value["JsonPatch"]);
-                if (JsonPatch.image) {
-                    console.log(JsonPatch.image)
-                    var image = parseBase64ImageToBinary(JsonPatch.image);
-                    updateImageForUser(req, image)
-                        .then(
-                            function(updateImageData){
-                                req.swagger.params.JsonPatch.value.profileId    = updateImageData.profileId; // After Image Upload ProfileId Get's Updated
-                                next();
-                            }
-                        )
+                    }
+                },
+                function(data) {
+                    if (data.success) {
+                        res.data = data;
+                        next();
+                    } else {
+                        res.header({"content-type": "application/json"});
+                        sendErrorResponse(new Error("Unauthenticated"), 403)
+                    }
                 }
-                break;
-            default:
-                console.log(req.swagger);
-                break;
-        }
+            ]
+        ]);
     } catch (e) {
-        console.log("ERROR")
+        next(e);
     }
-    next();
 };
 
 // Parse the Result and Populate Fields
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
-    const integration = req.swagger.operation["x-apigateway-integration"];
-    var examples = res.examples;
-    var result = res.data.result;
-
-    // Conform the Results to the Fields in Model as Defined in the Swagger File
-    const parseResult = function (input, async) {
-        var result = {};
-        if (!input || !input.hasOwnProperty("id")){
-            throw new Error();
-        }
-        return function f(property){
-            return new Promise(
-                function(resolve, reject){
-                    try {
-                        result[property] = findNode(property, input, 3);
-                        if (!result[property]) {
-                            result[property] = null;
-                            f.result = result;
-                            resolve(f.result);
-                        } else {
-                            if (async) {
-                                asynchPropertyFormatter(result, property)
-                                    .then(
-                                        function(){
-                                            f.result = result;
-                                            resolve(f.result);
-                                        }
-                                    );
-                            } else {
-                                result[property] = propertyFormatter(result, property);
-                                f.result = result;
-                                resolve(f.result);
-                            }
-                        }
-                    }
-                    catch (e) {
-                        reject(e.toString());
-                    }
-                }
-            )
-        }
-    };
-
-    // Some Properties will Need to Get Transformed. i.e. Image URL is formed from the profileId
-    function propertyFormatter(result, property){
-        if (result[property]){
-            switch (property){
-                case "profileId":
-                    if (result[property]) {
-                        result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result; // Make Request to get the Octet Stream Here
-                    }
-                    break;
-                default:
-                    break;
-            }
-            return result[property];
-        }
-    }
-
-    // Asynchronous Property Formatter
-    function asynchPropertyFormatter(result, property){
-        return new Promise(
-            function(resolve, reject){
-                try {
-                    var promise;
-                    if (result[property]){
-                        switch (property){
-                            case "profileId":
-                                if (result[property]) {
-                                    //result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result[property]; // Make Request to get the Octet Stream Here
-                                    promise = makeRequest(
-                                        {
-                                            hostname: integration.hostname,
-                                            port: integration.port,
-                                            path: "/attachment?id=" + result[property],
-                                            method: "GET",
-                                            headers: headers,
-                                            req: req
-                                        },
-                                        null,
-                                        "binary"
-                                    )
-                                        .catch(
-                                            function(e){
-                                                reject();
-                                            }
-                                        )
-                                        .then(
-                                            function(data){
-                                                result["image"] = data;
-                                                return result;
-                                            }
-                                        );
-                                }
-                                break;
-                            default:
-                                break;
-                        }
-                        if (promise){
-                            promise.then(
-                                function(result){
-                                    resolve(result);
-                                }
-                            )
-                        } else {
-                            resolve(result);
-                        }
-                    }
-                } catch (e) {
-                    reject(e.toString());
-                }
-            }
-        );
-
-    }
-
+    const integration   = req.swagger.operation["x-apigateway-integration"];
+    var examples        = res.examples;
+    var result          = res.data.result;
+    const isArray       = res.examples.constructor === Array;
     try {
         var returnJson = new Promise(
             function(resolve, reject){
                 // Array of Results
-                if (res.examples.constructor === Array){
-                    var newResult = [];
+                if (isArray){
                     var resultPromises = result.map(
                         function(i){
                             return new Promise(function(resolve, reject){
@@ -556,3 +153,249 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
 };
 
 
+
+// Convenience Functions
+class RequestChain {
+    process(requestArray){
+        async function t(){
+            var self = this;
+            var consumeMe = {};
+            var promiseArray = [];
+            for (const request of requestArray) {
+                function(){
+                    const options = request[0];
+                    const callback = request[1];
+                    if (options.hasOwnProperty("fn")) {
+                        options.fn(consumeMe);
+                    }
+                    await self.makeRequest(options)
+                        .then(
+                            function (data) {
+                                consumeMe = callback(data);
+                                resolve();
+                            }
+                        )
+                }
+            }
+        };
+    }
+    // Convenience Function to Make Requests to the Pure Access
+    static makeRequest(options) {
+        var body = "";
+        return new Promise(function(resolve, reject){
+            const request = http.request(options, (response) => {
+                response.setEncoding(options.encoding ? options.encoding : 'utf8');
+                response.on('data', (chunk) => {
+                    // console.log(`BODY: ${chunk}`);
+                    if (options.encoding === "binary"){
+                        body += new Buffer(chunk, 'binary').toString('hex');
+                    } else {
+                        body += chunk;
+                    }
+                });
+                response.on('end', function(t){
+                    var result;
+                    try {
+                        if (options.encoding === "binary"){
+                            var fileExtension = response.headers['content-disposition'].replace(/.+\./, '');
+                            var b64String= new Buffer(body, 'hex').toString('base64');
+                            result = "data:image/" + fileExtension + ";base64," + b64String;
+                        } else {
+                            result = JSON.parse(body);
+                        }
+                    } catch (e) {
+                        reject(e.toString());
+                    }
+                    resolve(result);
+                });
+            });
+            request.on('error', (e) => {
+                console.error(`Problem with Request: ${e.message}`);
+                reject();
+            });
+            if (options.write){
+                request.write(options.write)
+            }
+            request.end();
+        });
+
+    }
+}
+
+function sendErrorResponse(res, e) {
+    res.status(499).send(JSON.stringify({"message": e.message})); // TODO: Change Response Code
+}
+
+function convertMethod(method){
+    switch (method){
+        case "GET":
+            return "GET";
+        case "POST":
+        case "PATCH":
+        case "PUT":
+            return "POST";
+    }
+}
+
+function getParams(params, tenantId){
+    try {
+        var result = {};
+        var extra = "";
+        Object.keys(params).forEach(function(param){
+            result[param] = params[param].value;
+            if (typeof result[param] === "object"){
+                extra += querystring.stringify(result[param]);
+                delete result[param];
+            }
+        });
+        result.tenantId = tenantId;
+        return querystring.stringify(result) + "&" + extra;
+    } catch (e) {
+        throw new Error("Couldn't Get Params");
+    }
+}
+
+function decodeBase64AuthenticationToken(b64String){
+    try {
+        const strippedString = b64String.replace("Basic", "").replace(" ", "");
+        const decoded = new Buffer(strippedString, 'base64').toString();
+        const username = decoded.replace(/:.+/, "");
+        const password = decoded.replace(/.+:/, "");
+        return {username: username, pwd: password};
+    } catch (e) {
+        return {username:"", pwd: ""}
+    }
+}
+
+
+// Traverse the JSON Response and Find Required Fields
+function findNode(key, currentNode, maxDepth) {
+    var i,
+        currentChild,
+        result;
+    if (maxDepth <= 0) {
+        return false;
+    }
+    if (currentNode.hasOwnProperty(key)) {
+        return currentNode[key];
+    } else {
+        // Use a for loop instead of forEach to avoid nested functions
+        // Otherwise "return" will not work properly
+        for (i = 0; i < Object.keys(currentNode).length; i += 1) {
+            currentChild = currentNode[Object.keys(currentNode)[i]];
+            if (currentChild === null) {
+                continue;
+            }
+            // Search in the current child
+            result = findNode(key, currentChild, maxDepth - 1);
+            // Return the result if the node has been found
+            if (result !== false) {
+                return result;
+            }
+        }
+        // The node has not been found and we have no more options
+        return false;
+    }
+}
+
+// Some Properties will Need to Get Transformed. i.e. Image URL is formed from the profileId
+function propertyFormatter(result, property){
+    if (result[property]){
+        switch (property){
+            case "profileId":
+                if (result[property]) {
+                    result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result; // Make Request to get the Octet Stream Here
+                }
+                break;
+            default:
+                break;
+        }
+        return result[property];
+    }
+}
+
+// Conform the Results to the Fields in Model as Defined in the Swagger File
+const parseResult = function (input, async) {
+    var result = {};
+    if (!input || !input.hasOwnProperty("id")){
+        throw new Error();
+    }
+    return function f(property){
+        return new Promise(
+            function(resolve, reject){
+                try {
+                    result[property] = findNode(property, input, 3);
+                    if (!result[property]) {
+                        result[property] = null;
+                        f.result = result;
+                        resolve(f.result);
+                    } else {
+                        if (async) {
+                            asynchPropertyFormatter(result, property)
+                                .then(
+                                    function(){
+                                        f.result = result;
+                                        resolve(f.result);
+                                    }
+                                );
+                        } else {
+                            result[property] = propertyFormatter(result, property);
+                            f.result = result;
+                            resolve(f.result);
+                        }
+                    }
+                }
+                catch (e) {
+                    reject(e.toString());
+                }
+            }
+        )
+    }
+};
+
+// Asynchronous Property Formatter
+function asynchPropertyFormatter(result, property){
+    return new Promise(
+        function(resolve, reject){
+            try {
+                var promise;
+                if (result[property]){
+                    switch (property){
+                        case "profileId":
+                            if (result[property]) {
+                                //result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result[property]; // Make Request to get the Octet Stream Here
+                                RequestChain.makeRequest(
+                                    {
+                                        hostname:   integration.hostname,
+                                        port:       integration.port,
+                                        path:       "/attachment?id=" + result[property],
+                                        method:     "GET",
+                                        headers:    headers,
+                                        encoding:   "bianry"
+                                    }
+                                )
+                                    .catch(
+                                        function(e){
+                                            reject();
+                                        }
+                                    )
+                                    .then(
+                                        function(data){
+                                            result["image"] = data;
+                                            return result;
+                                        }
+                                    );
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+                    resolve(result);
+                }
+            } catch (e) {
+                reject(e.toString());
+            }
+        }
+    );
+
+}
