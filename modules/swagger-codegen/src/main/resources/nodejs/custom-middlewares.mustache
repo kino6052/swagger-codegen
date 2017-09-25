@@ -10,29 +10,49 @@ const headers = {
 
 // Authentication Middleware
 module.exports.authenticationMiddleware = function authenticationMiddleware(req, res, next){
-    const integration                   = req.swagger.operation["x-apigateway-integration"];
-    const authorizationHeaderRaw        = req.header("Authorization");
-    const authorizationHeaderDecoded    = decodeBase64AuthenticationToken(authorizationHeaderRaw);
-    const authorizationHeader           = querystring.stringify(authorizationHeaderDecoded);
-    return new RequestChain(req).process([
-        [
-            {
-                hostname:   integration.hostname,
-                port:       integration.port,
-                path:       "/login",
-                method:     "POST",
-                headers:    headers,
-                write:      authorizationHeader
-            },
-            function(data){
-                if (data.success) {
-                    next();
-                } else {
-                    sendErrorResponse(new Error("Unauthenticated"), 403)
+    try {
+        const integration                   = req.swagger.operation["x-apigateway-integration"];
+        const authorizationHeaderRaw        = req.header("Authorization");
+        const authorizationHeaderDecoded    = decodeBase64AuthenticationToken(authorizationHeaderRaw);
+        const authorizationHeader           = querystring.stringify(authorizationHeaderDecoded);
+        return new RequestChain(req).process([
+            [
+                {
+                    hostname:   integration.hostname,
+                    port:       integration.port,
+                    path:       "/login",
+                    method:     "POST",
+                    headers:    headers,
+                    write:      authorizationHeader
+                },
+                function(data){
+                    if (data.success) {
+                        next();
+                    } else {
+                        ErrorResponse.send(
+                            res,
+                            new ErrorResponse(
+                                {
+                                    status  : 403,
+                                    message : "Unauthenticated"
+                                }
+                            )
+                        )
+                    }
                 }
-            }
-        ]
-    ]);
+            ]
+        ]);
+    } catch (e){
+        ErrorResponse.send(
+            res,
+            new ErrorResponse(
+                {
+                    status  : 499,
+                    message : e.message
+                }
+            )
+        )
+    }
 };
 
 // Gateway Middleware to Map Request Endpoints to Pure Access Endpoints
@@ -78,7 +98,15 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                         res.data = data;
                         next();
                     } else {
-                        sendErrorResponse(new Error("Unauthenticated"), 403)
+                        ErrorResponse.send(
+                            res,
+                            new ErrorResponse(
+                                {
+                                    status      : 499,
+                                    message     : "Bad Result"
+                                }
+                            )
+                        )
                     }
                     return data;
                 }
@@ -99,13 +127,12 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
 
     var callback = function(resource){
         var model = isArray ? res.examples[0] : res.examples;
-        return new ResourceConverter(resource, model, requestChain).preformat();
+        return new ResourceConverter(resource, model, requestChain).postformat();
     };
 
     var finalCallback = function (data) {
         res.end(JSON.stringify(data));
-    }
-
+    };
 
     try {
         // Array of Results
@@ -117,7 +144,7 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
             callback(result).then(finalCallback);
         }
     } catch (e) {
-        sendErrorResponse(res, e); // TODO: Change Response Code
+        ErrorResponse.send(res, e); // TODO: Change Response Code
     }
 };
 
@@ -125,6 +152,102 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
 ///////////////////////////////////////
 // Convenience Classes and Functions //
 ///////////////////////////////////////
+
+class ErrorResponse {
+    constructor(object){
+        return new Error(
+            JSON.stringify(object)
+        )
+    }
+    static send(res, e){
+        var error = JSON.parse(e.message);
+        res
+            .status(error.status)
+            .type('application/json')
+            .send(
+                e.message
+            );
+    }
+}
+
+class Response {
+    constructor(response, options){
+        this.response   = response;
+        this.options    = options;
+        this.body       = "";
+        this.setEncoding();
+        this.registerOnDataCallback();
+        return this.registerOnEndCallback();
+    }
+
+    setEncoding(){
+        try {
+            var encoding = this.options.encoding;
+            if (encoding){
+                this.response.setEncoding(encoding);
+            } else {
+                this.response.setEncoding('utf8');
+            }
+        } catch (e) {
+            throw new Error(
+                JSON.stringify(
+                    {
+                        status: 499,
+                        message: "Couldn't Set Encoding"
+                    }
+                )
+            )
+        }
+    }
+
+    registerOnDataCallback(){
+        var self = this;
+        this.response.on('data', (chunk) => {
+            // console.log(`BODY: ${chunk}`);
+            if (self.options.encoding === "binary"){
+                self.body += self.processBinary(chunk);
+            } else {
+                self.body += chunk;
+            }
+        });
+    }
+
+    registerOnEndCallback(){
+        var self = this;
+        return new Promise(
+            function(resolve, reject){
+                self.response.on('end', function(){
+                    var result;
+                    try {
+                        if (self.options.encoding === "binary"){
+                            if (
+                                self.options.mimeType &&
+                                self.options.mimeType === "image"
+                            ){
+                                result = self.processImage();
+                            }
+                        } else {
+                            result = JSON.parse(self.body);
+                        }
+                    } catch (e) {
+                        reject(e.toString());
+                    }
+                    resolve(result);
+                });
+            }
+        );
+    }
+
+    processImage(){
+        var fileExtension = response.headers['content-disposition'].replace(/.+\./, '');
+        var b64String= new Buffer(body, 'hex').toString('base64');
+        return "data:image/" + fileExtension + ";base64," + b64String;
+    }
+
+    processBinary(chunk){
+        return new Buffer(chunk, 'binary').toString('hex');
+    }
+}
 
 // Throws Errors Specific to Requests and Responses
 class RequestChain {
@@ -142,7 +265,7 @@ class RequestChain {
                     function(result){
                         const options = request[0];
                         const callback = request[1];
-                        if (options.hasOwnProperty("fn")) {
+                        if (options.hasOwnProperty("fn")) { // Function That Processes Options Object for the http.request
                             options.fn(result[result.length-1]);
                         }
                         return self.makeRequest(options)
@@ -159,37 +282,18 @@ class RequestChain {
 
     // Convenience Function to Make Requests to the Pure Access
     makeRequest(options) {
-        var body = "";
         return new Promise(function(resolve, reject){
             const request = http.request(options, (response) => {
-                response.setEncoding(options.encoding ? options.encoding : 'utf8');
-                response.on('data', (chunk) => {
-                    // console.log(`BODY: ${chunk}`);
-                    if (options.encoding === "binary"){
-                        body += new Buffer(chunk, 'binary').toString('hex');
-                    } else {
-                        body += chunk;
-                    }
-                });
-                response.on('end', function(t){
-                    var result;
-                    try {
-                        if (options.encoding === "binary"){
-                            var fileExtension = response.headers['content-disposition'].replace(/.+\./, '');
-                            var b64String= new Buffer(body, 'hex').toString('base64');
-                            result = "data:image/" + fileExtension + ";base64," + b64String;
-                        } else {
-                            result = JSON.parse(body);
+                new Response(response, options)
+                    .then(
+                        function(result) {
+                            resolve(result);
                         }
-                    } catch (e) {
-                        reject(e.toString());
-                    }
-                    resolve(result);
-                });
+                    );
             });
             request.on('error', (e) => {
                 console.error(`Problem with Request: ${e.message}`);
-                reject();
+                reject(e);
             });
             if (options.write){
                 request.write(options.write)
@@ -207,25 +311,26 @@ class RequestChain {
                 path:       "/attachment?id=" + profileId,
                 method:     "GET",
                 headers:    headers,
-                encoding:   "binary"
+                encoding:   "binary",
+                mimeType:   "image"
             }
         )
-            .catch(
-                function(e){
-                    reject(e);
-                }
-            )
             .then(
                 function(data){
-                    self.resource["image"] = data;
-                    resolve(self.resource);
+                    return data;
                 }
             );
     }
 }
 
 function sendErrorResponse(res, e) {
-    res.status(499).send(JSON.stringify({"message": e.message})); // TODO: Change Response Code
+    var error = JSON.parse(e.message);
+    res
+        .status(error.status)
+        .type('application/json')
+        .send(
+            e.message
+        );
 }
 
 function convertMethod(method){
@@ -268,7 +373,12 @@ function getParams(params, tenantId){
         result.tenantId = tenantId;
         return querystring.stringify(result) + "&" + extra;
     } catch (e) {
-        throw new Error("Couldn't Get Params");
+        throw new Error(
+            {
+                status  : 499,
+                message : "Couldn't Get Params"
+            }
+        );
     }
 }
 
@@ -348,24 +458,37 @@ class ResourceConverter {
         )
     }
 
-    preformat(){
+    postformat(){
         var self = this;
         var promises = [];
 
         Object.keys(self.model).forEach(
             function(field){
-                switch (field){
-                    case "profileId":
-                        //result[property] = req.swagger.swaggerObject.host + "/attachment?id=" + result[property]; // Make Request to get the Octet Stream Here
-                        promises.push(self.requestChain.getImage(self.resource[field]));
-                        break;
-                    default:
-                        promises.push(Promise.resolve(self.resource));
-                        break;
+                if (self.resource[field] !== null) { // Don't Do Any Logic if There is Nothing to Process
+                    switch (field){ // Every Field Modification Should be a Promise
+                        case "profileId":
+                            promises.push(
+                                self.requestChain.getImage(self.resource[field])
+                            );
+                            break;
+                        default:
+                            promises.push(
+                                Promise.resolve(self.resource)
+                            );
+                            break;
+                    }
                 }
             }
         );
-        return Promise.all(promises);
+        // All Transformation are Done in Asynchronous Fashion on self.resource.
+        // This Means That We Only Return if All the Promises are Resolved.
+        return Promise
+            .all(promises)
+            .then(
+                function(data){
+                    return self.resource;
+                }
+            );
     }
 }
 

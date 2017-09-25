@@ -129,6 +129,8 @@ definitions:
         type: "string"
       employeeId:
         type: "integer"
+      profileId:
+        type: "integer"
       image:
         type: "string"
         format: "base64"
