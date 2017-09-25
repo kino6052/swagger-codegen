@@ -2,28 +2,21 @@
 
 const querystring     = require('querystring');
 const http            = require('http');
-const headers = {
-    'Content-Type': 'application/x-www-form-urlencoded',
-    'Cookie': 'username=api; utoken=manager;',
-};
 
 
 // Authentication Middleware
 module.exports.authenticationMiddleware = function authenticationMiddleware(req, res, next){
     try {
-        const integration                   = req.swagger.operation["x-apigateway-integration"];
-        const authorizationHeaderRaw        = req.header("Authorization");
-        const authorizationHeaderDecoded    = decodeBase64AuthenticationToken(authorizationHeaderRaw);
-        const authorizationHeader           = querystring.stringify(authorizationHeaderDecoded);
+        var rc = new RequestContext(req);
         return new RequestChain(req).process([
             [
                 {
-                    hostname:   integration.hostname,
-                    port:       integration.port,
+                    hostname:   rc.getHostname(),
+                    port:       rc.getPort(),
                     path:       "/login",
                     method:     "POST",
-                    headers:    headers,
-                    write:      authorizationHeader
+                    headers:    rc.getHeaders(),
+                    write:      rc.getAuthorizationHeader()
                 },
                 function(data){
                     if (data.success) {
@@ -41,13 +34,25 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
                     }
                 }
             ]
-        ]);
+        ]).catch(
+            (e) => {
+                ErrorResponse.send(
+                    res,
+                    new ErrorResponse(
+                        {
+                            status: 500,
+                            message: e.message
+                        }
+                    )
+                )
+            }
+        )
     } catch (e){
         ErrorResponse.send(
             res,
             new ErrorResponse(
                 {
-                    status  : 499,
+                    status  : 500,
                     message : e.message
                 }
             )
@@ -58,18 +63,15 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
 // Gateway Middleware to Map Request Endpoints to Pure Access Endpoints
 module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     try {
-        const integration                   = req.swagger.operation["x-apigateway-integration"];
-        const authorizationHeaderRaw        = req.header("Authorization");
-        const authorizationHeaderDecoded    = decodeBase64AuthenticationToken(authorizationHeaderRaw);
-        const authorizationHeader           = querystring.stringify(authorizationHeaderDecoded);
+        var rc = new RequestContext(req);
         return new RequestChain(req).process([
             [
                 {
-                    hostname    :   integration.hostname,
-                    port        :   integration.port,
-                    path        :   "/getTenantForUser?" + authorizationHeader,
+                    hostname    :   rc.getHostname(),
+                    port        :   rc.getPort(),
+                    path        :   "/getTenantForUser?" + rc.getAuthorizationHeader(),
                     method      :   "GET",
-                    headers     :   headers,
+                    headers     :   rc.getHeaders(),
                 },
                 function(data){
                     return data;
@@ -77,17 +79,17 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
             ],
             [
                 {
-                    hostname    :   integration.hostname,
-                    port        :   integration.port,
-                    method      :   convertMethod(integration.httpMethod),
-                    headers     :   headers,
+                    hostname    :   rc.getHostname(),
+                    port        :   rc.getPort(),
+                    method      :   rc.getIntegrationMethod(),
+                    headers     :   rc.getHeaders(),
                     fn: function(data){ // Function for Processing Header Fields Based on the Returned Values from the Previous Request (/getTenantForUser)
                         const tenantId  = data.result.id;
-                        this.write      = getParams(req.swagger.params, data.result.id);
-                        this.path       = integration.path;
-                        switch (integration.httpMethod){
+                        this.write      = rc.getParams(tenantId);
+                        this.path       = rc.getIntegrationPath();
+                        switch (rc.getIntegrationMethod()){
                             case "GET":
-                                this.path = integration.path + "?" + getParams(req.swagger.params, tenantId);
+                                this.path = rc.getIntegrationPath() + "?" + rc.getParams(tenantId);
                                 break;
                         }
                         return data;
@@ -111,18 +113,35 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                     return data;
                 }
             ]
-        ]);
+        ])
+            .catch(
+                (e) => {
+                    ErrorResponse.send(
+                        res,
+                        new ErrorResponse(
+                            {
+                                status: 500,
+                                message: e.message
+                            }
+                        )
+                    )
+                }
+            )
     } catch (e) {
-        next(e);
+        ErrorResponse.send(
+            res,
+            {
+                status: 500,
+                message: e.message
+            }
+        ); // TODO: Change Response Code
     }
 };
 
 // Parse the Result and Populate Fields
 module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
     const requestChain  = new RequestChain(req);
-    const integration   = req.swagger.operation["x-apigateway-integration"];
-    const isArray       = res.examples.constructor === Array;
-    var examples        = res.examples;
+    const isArray       = res.examples.constructor === Array; // TODO: Refactor for Better Readability
     var result          = res.data.result;
 
     var callback = function(resource){
@@ -137,11 +156,23 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
     try {
         // Array of Results
         if (isArray){
-            processArray(result, callback).then(finalCallback);
+            processArray(result, callback)
+                .then(finalCallback)
+                .catch(
+                    function(e){
+                        ErrorResponse.send(res, e);
+                    }
+                );
         }
         // Single Result
         else {
-            callback(result).then(finalCallback);
+            callback(result)
+                .then(finalCallback)
+                .catch(
+                    function(e){
+                        ErrorResponse.send(res, e);
+                    }
+                );
         }
     } catch (e) {
         ErrorResponse.send(res, e); // TODO: Change Response Code
@@ -153,6 +184,106 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
 // Convenience Classes and Functions //
 ///////////////////////////////////////
 
+class RequestContext {
+    constructor(req){
+        this.req                    = req;
+        this.checkIfEndpointExists();
+        this.integration            = req.swagger.operation["x-apigateway-integration"];
+        this.port                   = this.integration.port;
+        this.hostname               = this.integration.hostname;
+        this.authorizationHeader    = RequestContext.processAuthorizationHeader(this.req.header("Authorization"));
+        this.integrationMethod      = this.convertMethod(this.integration.httpMethod);
+        this.integrationPath        = this.integration.path;
+        this.params                 = this.req.swagger.params;
+        this.headers                = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Cookie': 'username=api; utoken=manager;',
+        };
+    }
+
+    checkIfEndpointExists(){
+        if (!this.req.swagger){
+            throw new Error("No Such Endpoint Defined in Specification");
+        }
+    }
+
+    getPort(){
+        return this.port;
+    }
+
+    getHostname(){
+        return this.hostname;
+    }
+
+    static processAuthorizationHeader(header){
+        var authorizationHeaderDecoded    = RequestContext.decodeBase64AuthenticationToken(header);
+        return querystring.stringify(authorizationHeaderDecoded);
+    }
+
+    getAuthorizationHeader(){
+        return this.authorizationHeader;
+    }
+
+    getIntegrationMethod(){
+        return this.integrationMethod;
+    }
+
+    getIntegrationPath(){
+        return this.integrationPath;
+    }
+
+    getParams(tenantId){
+        var params = this.params;
+        try {
+            var result = {};
+            var extra = "";
+            Object.keys(params).forEach(function(param){
+                result[param] = params[param].value;
+                if (typeof result[param] === "object"){
+                    extra += querystring.stringify(result[param]);
+                    delete result[param];
+                }
+            });
+            result.tenantId = tenantId;
+            return querystring.stringify(result) + "&" + extra;
+        } catch (e) {
+            throw new Error(
+                {
+                    status  : 499,
+                    message : "Couldn't Get Params"
+                }
+            );
+        }
+    }
+
+    convertMethod(method){
+        switch (method){
+            case "GET":
+                return "GET";
+            case "POST":
+            case "PATCH":
+            case "PUT":
+                return "POST";
+        }
+    }
+
+    getHeaders(){
+        return this.headers;
+    }
+
+    static decodeBase64AuthenticationToken(b64String){
+        try {
+            const strippedString = b64String.replace("Basic", "").replace(" ", "");
+            const decoded = new Buffer(strippedString, 'base64').toString();
+            const username = decoded.replace(/:.+/, "");
+            const password = decoded.replace(/.+:/, "");
+            return {username: username, pwd: password};
+        } catch (e) {
+            return {username:"", pwd: ""}
+        }
+    }
+}
+
 class ErrorResponse {
     constructor(object){
         return new Error(
@@ -160,12 +291,20 @@ class ErrorResponse {
         )
     }
     static send(res, e){
-        var error = JSON.parse(e.message);
+        var error = null;
+        try {
+            error = JSON.parse(e.message);
+        } catch(ex) {
+            error = {
+                message: e.message,
+                status: 500
+            };
+        }
         res
             .status(error.status)
             .type('application/json')
             .send(
-                e.message
+                error
             );
     }
 }
@@ -230,7 +369,7 @@ class Response {
                             result = JSON.parse(self.body);
                         }
                     } catch (e) {
-                        reject(e.toString());
+                        reject(e);
                     }
                     resolve(result);
                 });
@@ -252,14 +391,16 @@ class Response {
 // Throws Errors Specific to Requests and Responses
 class RequestChain {
     constructor(req){
+        this.timeout        = 10 * 1000;
         this.req            = req;
         this.integration    = req.swagger.operation["x-apigateway-integration"];
+        this.rc             = new RequestContext(req);
     }
 
     //Sequential Promise Resolution
     process(requestArray){
         var self = this;
-        requestArray.reduce(
+        return requestArray.reduce(
             function(promise, request){
                 return promise.then(
                     function(result){
@@ -272,7 +413,7 @@ class RequestChain {
                             .then(callback)
                             .then(
                                 Array.prototype.concat.bind(result) // Process Data and Append it To List;
-                            );
+                            )
                     }
                 );
             },
@@ -282,6 +423,7 @@ class RequestChain {
 
     // Convenience Function to Make Requests to the Pure Access
     makeRequest(options) {
+        var self = this;
         return new Promise(function(resolve, reject){
             const request = http.request(options, (response) => {
                 new Response(response, options)
@@ -298,19 +440,25 @@ class RequestChain {
             if (options.write){
                 request.write(options.write)
             }
+            setTimeout(
+                () => {
+                    reject(new Error("Request Timeout"));
+                },
+                self.timeout
+            );
             request.end();
-        });
+        })
     }
 
     getImage(profileId){
         var self = this;
         return this.makeRequest(
             {
-                hostname:   self.integration.hostname,
-                port:       self.integration.port,
+                hostname:   this.rc.getHostname(),
+                port:       this.rc.getPort(),
                 path:       "/attachment?id=" + profileId,
                 method:     "GET",
-                headers:    headers,
+                headers:    this.rc.getHeaders(),
                 encoding:   "binary",
                 mimeType:   "image"
             }
@@ -320,27 +468,6 @@ class RequestChain {
                     return data;
                 }
             );
-    }
-}
-
-function sendErrorResponse(res, e) {
-    var error = JSON.parse(e.message);
-    res
-        .status(error.status)
-        .type('application/json')
-        .send(
-            e.message
-        );
-}
-
-function convertMethod(method){
-    switch (method){
-        case "GET":
-            return "GET";
-        case "POST":
-        case "PATCH":
-        case "PUT":
-            return "POST";
     }
 }
 
@@ -358,42 +485,6 @@ function processArray(array, callback){
             }
         )
 }
-
-function getParams(params, tenantId){
-    try {
-        var result = {};
-        var extra = "";
-        Object.keys(params).forEach(function(param){
-            result[param] = params[param].value;
-            if (typeof result[param] === "object"){
-                extra += querystring.stringify(result[param]);
-                delete result[param];
-            }
-        });
-        result.tenantId = tenantId;
-        return querystring.stringify(result) + "&" + extra;
-    } catch (e) {
-        throw new Error(
-            {
-                status  : 499,
-                message : "Couldn't Get Params"
-            }
-        );
-    }
-}
-
-function decodeBase64AuthenticationToken(b64String){
-    try {
-        const strippedString = b64String.replace("Basic", "").replace(" ", "");
-        const decoded = new Buffer(strippedString, 'base64').toString();
-        const username = decoded.replace(/:.+/, "");
-        const password = decoded.replace(/.+:/, "");
-        return {username: username, pwd: password};
-    } catch (e) {
-        return {username:"", pwd: ""}
-    }
-}
-
 
 // Traverse the JSON Response and Find Required Fields
 function findNode(key, currentNode, maxDepth) {
@@ -430,6 +521,7 @@ class ResourceConverter {
         this.resource       = resource;
         this.model          = model;
         this.requestChain   = requestChain;
+        this.preformat();
         this.prune();
         this.normalize();
     }
@@ -457,8 +549,7 @@ class ResourceConverter {
             }
         )
     }
-
-    postformat(){
+    preformat(){
         var self = this;
         var promises = [];
 
@@ -489,6 +580,38 @@ class ResourceConverter {
                     return self.resource;
                 }
             );
+    }
+    postformat(){
+        var self = this;
+        var promises = [];
+
+        Object.keys(self.model).forEach(
+            function(field){
+                if (self.resource[field] !== null) { // Don't Do Any Logic if There is Nothing to Process
+                    switch (field){ // Every Field Modification Should be a Promise
+                        case "profileId":
+                            promises.push(
+                                self.requestChain.getImage(self.resource[field])
+                            );
+                            break;
+                        default:
+                            promises.push(
+                                Promise.resolve(self.resource)
+                            );
+                            break;
+                    }
+                }
+            }
+        );
+        // All Transformation are Done in Asynchronous Fashion on self.resource.
+        // This Means That We Only Return if All the Promises are Resolved.
+        return Promise
+            .all(promises)
+            .then(
+                function(data){
+                    return self.resource;
+                }
+            )
     }
 }
 
