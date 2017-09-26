@@ -3,11 +3,10 @@
 const querystring     = require('querystring');
 const http            = require('http');
 
-
 // Authentication Middleware
 module.exports.authenticationMiddleware = function authenticationMiddleware(req, res, next){
     try {
-        var rc = new RequestContext(req);
+        let rc = new RequestContext(req);
         return new RequestChain(req).process([
             [
                 {
@@ -63,7 +62,7 @@ module.exports.authenticationMiddleware = function authenticationMiddleware(req,
 // Gateway Middleware to Map Request Endpoints to Pure Access Endpoints
 module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
     try {
-        var rc = new RequestContext(req);
+        let rc = new RequestContext(req);
         return new RequestChain(req).process([
             [
                 {
@@ -104,7 +103,7 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                             res,
                             new ErrorResponse(
                                 {
-                                    status      : 499,
+                                    status      : 500,
                                     message     : "Bad Result"
                                 }
                             )
@@ -134,22 +133,22 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                 status: 500,
                 message: e.message
             }
-        ); // TODO: Change Response Code
+        );
     }
 };
 
 // Parse the Result and Populate Fields
-module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, next){
+module.exports.postFormatMiddleware = function postFormatMiddleware(req, res){
     const requestChain  = new RequestChain(req);
     const isArray       = res.examples.constructor === Array; // TODO: Refactor for Better Readability
-    var result          = res.data.result;
+    let result          = res.data.result;
 
-    var callback = function(resource){
-        var model = isArray ? res.examples[0] : res.examples;
+    let callback = function(resource){
+        let model = isArray ? res.examples[0] : res.examples;
         return new ResourceConverter(resource, model, requestChain).postformat();
     };
 
-    var finalCallback = function (data) {
+    let finalCallback = function (data) {
         res.end(JSON.stringify(data));
     };
 
@@ -175,7 +174,7 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res, ne
                 );
         }
     } catch (e) {
-        ErrorResponse.send(res, e); // TODO: Change Response Code
+        ErrorResponse.send(res, e);
     }
 };
 
@@ -192,7 +191,7 @@ class RequestContext {
         this.port                   = this.integration.port;
         this.hostname               = this.integration.hostname;
         this.authorizationHeader    = RequestContext.processAuthorizationHeader(this.req.header("Authorization"));
-        this.integrationMethod      = this.convertMethod(this.integration.httpMethod);
+        this.integrationMethod      = RequestContext.convertMethod(this.integration.httpMethod);
         this.integrationPath        = this.integration.path;
         this.params                 = this.req.swagger.params;
         this.headers                = {
@@ -216,7 +215,7 @@ class RequestContext {
     }
 
     static processAuthorizationHeader(header){
-        var authorizationHeaderDecoded    = RequestContext.decodeBase64AuthenticationToken(header);
+        let authorizationHeaderDecoded    = RequestContext.decodeBase64AuthenticationToken(header);
         return querystring.stringify(authorizationHeaderDecoded);
     }
 
@@ -233,10 +232,10 @@ class RequestContext {
     }
 
     getParams(tenantId){
-        var params = this.params;
+        let params = this.params;
         try {
-            var result = {};
-            var extra = "";
+            let result = {};
+            let extra = "";
             Object.keys(params).forEach(function(param){
                 result[param] = params[param].value;
                 if (typeof result[param] === "object"){
@@ -256,7 +255,7 @@ class RequestContext {
         }
     }
 
-    convertMethod(method){
+    static convertMethod(method){
         switch (method){
             case "GET":
                 return "GET";
@@ -291,7 +290,7 @@ class ErrorResponse {
         )
     }
     static send(res, e){
-        var error = null;
+        let error = null;
         try {
             error = JSON.parse(e.message);
         } catch(ex) {
@@ -321,7 +320,7 @@ class Response {
 
     setEncoding(){
         try {
-            var encoding = this.options.encoding;
+            let encoding = this.options.encoding;
             if (encoding){
                 this.response.setEncoding(encoding);
             } else {
@@ -340,11 +339,11 @@ class Response {
     }
 
     registerOnDataCallback(){
-        var self = this;
+        let self = this;
         this.response.on('data', (chunk) => {
             // console.log(`BODY: ${chunk}`);
             if (self.options.encoding === "binary"){
-                self.body += self.processBinary(chunk);
+                self.body += Response.processBinary(chunk);
             } else {
                 self.body += chunk;
             }
@@ -352,11 +351,11 @@ class Response {
     }
 
     registerOnEndCallback(){
-        var self = this;
+        let self = this;
         return new Promise(
             function(resolve, reject){
                 self.response.on('end', function(){
-                    var result;
+                    let result;
                     try {
                         if (self.options.encoding === "binary"){
                             if (
@@ -378,12 +377,13 @@ class Response {
     }
 
     processImage(){
-        var fileExtension = response.headers['content-disposition'].replace(/.+\./, '');
-        var b64String= new Buffer(body, 'hex').toString('base64');
+        let self = this;
+        let fileExtension = self.response.headers['content-disposition'].replace(/.+\./, '');
+        let b64String= new Buffer(self.body, 'hex').toString('base64');
         return "data:image/" + fileExtension + ";base64," + b64String;
     }
 
-    processBinary(chunk){
+    static processBinary(chunk){
         return new Buffer(chunk, 'binary').toString('hex');
     }
 }
@@ -391,7 +391,7 @@ class Response {
 // Throws Errors Specific to Requests and Responses
 class RequestChain {
     constructor(req){
-        this.timeout        = 10 * 1000;
+        this.timeout        = 20 * 1000;
         this.req            = req;
         this.integration    = req.swagger.operation["x-apigateway-integration"];
         this.rc             = new RequestContext(req);
@@ -399,7 +399,7 @@ class RequestChain {
 
     //Sequential Promise Resolution
     process(requestArray){
-        var self = this;
+        let self = this;
         return requestArray.reduce(
             function(promise, request){
                 return promise.then(
@@ -423,10 +423,15 @@ class RequestChain {
 
     // Convenience Function to Make Requests to the Pure Access
     makeRequest(options) {
-        var self = this;
+        let self = this;
         return new Promise(function(resolve, reject){
             const request = http.request(options, (response) => {
                 new Response(response, options)
+                    .catch(
+                        function(e){
+                            reject(e);
+                        }
+                    )
                     .then(
                         function(result) {
                             resolve(result);
@@ -451,7 +456,6 @@ class RequestChain {
     }
 
     getImage(profileId){
-        var self = this;
         return this.makeRequest(
             {
                 hostname:   this.rc.getHostname(),
@@ -463,16 +467,11 @@ class RequestChain {
                 mimeType:   "image"
             }
         )
-            .then(
-                function(data){
-                    return data;
-                }
-            );
     }
 }
 
 function processArray(array, callback){
-    var resultPromises = array.map(
+    let resultPromises = array.map(
         function(item){
             return callback(item);
         }
@@ -488,7 +487,7 @@ function processArray(array, callback){
 
 // Traverse the JSON Response and Find Required Fields
 function findNode(key, currentNode, maxDepth) {
-    var i,
+    let i,
         currentChild,
         result;
     if (maxDepth <= 0) {
@@ -528,7 +527,7 @@ class ResourceConverter {
 
     // Removes Properties not in Model from the Resource
     prune(){
-        var self = this;
+        let self = this;
         Object.keys(self.resource).forEach(
             function(key){
                 if (self.model[key] === undefined) {
@@ -540,7 +539,7 @@ class ResourceConverter {
 
     // Adds Properties not Found in the Original Resources, but the Ones Specified in Model
     normalize(){
-        var self = this;
+        let self = this;
         Object.keys(self.model).forEach(
             function(key){
                 if (self.resource[key] === undefined) {
@@ -550,8 +549,8 @@ class ResourceConverter {
         )
     }
     preformat(){
-        var self = this;
-        var promises = [];
+        let self = this;
+        let promises = [];
 
         Object.keys(self.model).forEach(
             function(field){
@@ -576,14 +575,14 @@ class ResourceConverter {
         return Promise
             .all(promises)
             .then(
-                function(data){
+                function(){
                     return self.resource;
                 }
             );
     }
     postformat(){
-        var self = this;
-        var promises = [];
+        let self = this;
+        let promises = [];
 
         Object.keys(self.model).forEach(
             function(field){
@@ -591,7 +590,11 @@ class ResourceConverter {
                     switch (field){ // Every Field Modification Should be a Promise
                         case "profileId":
                             promises.push(
-                                self.requestChain.getImage(self.resource[field])
+                                self.requestChain.getImage(self.resource[field]).then(
+                                    (data) => {
+                                        self.resource.image = data;
+                                    }
+                                )
                             );
                             break;
                         default:
@@ -608,7 +611,7 @@ class ResourceConverter {
         return Promise
             .all(promises)
             .then(
-                function(data){
+                function(){
                     return self.resource;
                 }
             )
