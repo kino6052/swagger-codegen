@@ -10,7 +10,7 @@ info:
   license:
     name: "Apache 2.0"
     url: "http://www.apache.org/licenses/LICENSE-2.0.html"
-host: "localhost:9080"
+host: "localhost:8080"
 basePath: "/"
 schemes:
 - "https"
@@ -37,7 +37,7 @@ paths:
               description: "URI that may access the resource"
       x-apigateway-integration:
         hostname: "localhost"
-        port: "9080"
+        port: "8080"
         path: "/ms/getUsersAndImages"
         httpMethod: "GET"
         type: "https"
@@ -68,7 +68,7 @@ paths:
       x-apigateway-integration:
         requestParameters: null
         hostname: "localhost"
-        port: "9080"
+        port: "8080"
         path: "/ms/getUserInTenant"
         httpMethod: "GET"
         type: "https"
@@ -104,7 +104,7 @@ paths:
       x-apigateway-integration:
         requestParameters: null
         hostname: "localhost"
-        port: "9080"
+        port: "8080"
         path: "/ms/updateUser"
         httpMethod: "PATCH"
         type: "https"
