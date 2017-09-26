@@ -183,7 +183,7 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res){
 // Convenience Classes and Functions //
 ///////////////////////////////////////
 
-class RequestContext {
+module.exports.RequestContext = class RequestContext {
     constructor(req){
         this.req                    = req;
         this.checkIfEndpointExists();
@@ -281,9 +281,9 @@ class RequestContext {
             return {username:"", pwd: ""}
         }
     }
-}
+};
 
-class ErrorResponse {
+module.exports.ErrorResponse = class ErrorResponse {
     constructor(object){
         return new Error(
             JSON.stringify(object)
@@ -306,9 +306,9 @@ class ErrorResponse {
                 error
             );
     }
-}
+};
 
-class Response {
+module.exports.Response = class Response {
     constructor(response, options){
         this.response   = response;
         this.options    = options;
@@ -386,10 +386,10 @@ class Response {
     static processBinary(chunk){
         return new Buffer(chunk, 'binary').toString('hex');
     }
-}
+};
 
 // Throws Errors Specific to Requests and Responses
-class RequestChain {
+module.exports.RequestChain = class RequestChain {
     constructor(req){
         this.timeout        = 20 * 1000;
         this.req            = req;
@@ -468,7 +468,7 @@ class RequestChain {
             }
         )
     }
-}
+};
 
 function processArray(array, callback){
     let resultPromises = array.map(
@@ -515,7 +515,7 @@ function findNode(key, currentNode, maxDepth) {
     }
 }
 
-class ResourceConverter {
+module.exports.ResourceConverter = class ResourceConverter {
     constructor(resource, model, requestChain){
         this.resource       = resource;
         this.model          = model;
@@ -549,36 +549,7 @@ class ResourceConverter {
         )
     }
     preformat(){
-        let self = this;
-        let promises = [];
-
-        Object.keys(self.model).forEach(
-            function(field){
-                if (self.resource[field] !== null) { // Don't Do Any Logic if There is Nothing to Process
-                    switch (field){ // Every Field Modification Should be a Promise
-                        case "profileId":
-                            promises.push(
-                                self.requestChain.getImage(self.resource[field])
-                            );
-                            break;
-                        default:
-                            promises.push(
-                                Promise.resolve(self.resource)
-                            );
-                            break;
-                    }
-                }
-            }
-        );
-        // All Transformation are Done in Asynchronous Fashion on self.resource.
-        // This Means That We Only Return if All the Promises are Resolved.
-        return Promise
-            .all(promises)
-            .then(
-                function(){
-                    return self.resource;
-                }
-            );
+        //TODO: Implement
     }
     postformat(){
         let self = this;
@@ -616,6 +587,6 @@ class ResourceConverter {
                 }
             )
     }
-}
+};
 
 
