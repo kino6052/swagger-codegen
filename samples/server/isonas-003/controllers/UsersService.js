@@ -17,11 +17,10 @@ exports.userGET = function(id) {
   "displayName" : "displayName",
   "disable" : true,
   "employeeId" : 6,
-  "profileId" : 1,
   "id" : 0,
   "mi" : "mi",
   "notificationEmail" : "notificationEmail",
-  "userDefinedFields" : [ "{}", "{}" ]
+  "userDefinedFields" : "{}"
 };
     if (Object.keys(examples).length > 0) {
       resolve(examples[Object.keys(examples)[0]]);
@@ -36,10 +35,10 @@ exports.userGET = function(id) {
  * Update User
  *
  * id String ID of user to update
- * jsonPatch PatchRequest JSON Patch Document
+ * user UserUpdate User Update Data
  * returns User
  **/
-exports.userPATCH = function(id,jsonPatch) {
+exports.userPUT = function(id,user) {
   return new Promise(function(resolve, reject) {
     var examples = {};
     examples['application/json'] = {
@@ -47,13 +46,12 @@ exports.userPATCH = function(id,jsonPatch) {
   "lastName" : "lastName",
   "image" : "image",
   "displayName" : "displayName",
-  "profileId" : 1,
   "disable" : true,
   "employeeId" : 6,
   "id" : 0,
   "mi" : "mi",
   "notificationEmail" : "notificationEmail",
-  "userDefinedFields" : [ "{}", "{}" ]
+  "userDefinedFields" : "{}"
 };
     if (Object.keys(examples).length > 0) {
       resolve(examples[Object.keys(examples)[0]]);
@@ -67,28 +65,12 @@ exports.userPATCH = function(id,jsonPatch) {
 /**
  * Get All Users
  *
- * returns List
+ * returns Users
  **/
 exports.usersGET = function() {
   return new Promise(function(resolve, reject) {
     var examples = {};
-    examples['application/json'] = [
-        {
-            "id": 0,
-            "displayName": "string",
-            "firstName": "string",
-            "lastName": "string",
-            "mi": "string",
-            "employeeId": 0,
-            "profileId" : 1,
-            "image": "string",
-            "notificationEmail": "string",
-            "userDefinedFields": [
-                {}
-            ],
-            "disable": true
-        }
-    ];
+    examples['application/json'] = "";
     if (Object.keys(examples).length > 0) {
       resolve(examples[Object.keys(examples)[0]]);
     } else {

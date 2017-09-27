@@ -113,19 +113,19 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                 }
             ]
         ])
-        .catch(
-            (e) => {
-                ErrorResponse.send(
-                    res,
-                    new ErrorResponse(
-                        {
-                            status: 500,
-                            message: e.message
-                        }
+            .catch(
+                (e) => {
+                    ErrorResponse.send(
+                        res,
+                        new ErrorResponse(
+                            {
+                                status: 500,
+                                message: e.message
+                            }
+                        )
                     )
-                )
-            }
-        )
+                }
+            )
     } catch (e) {
         ErrorResponse.send(
             res,

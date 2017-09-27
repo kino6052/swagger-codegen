@@ -113,19 +113,19 @@ module.exports.gatewayMiddleware = function gatewayMiddleware(req, res, next){
                 }
             ]
         ])
-        .catch(
-            (e) => {
-                ErrorResponse.send(
-                    res,
-                    new ErrorResponse(
-                        {
-                            status: 500,
-                            message: e.message
-                        }
+            .catch(
+                (e) => {
+                    ErrorResponse.send(
+                        res,
+                        new ErrorResponse(
+                            {
+                                status: 500,
+                                message: e.message
+                            }
+                        )
                     )
-                )
-            }
-        )
+                }
+            )
     } catch (e) {
         ErrorResponse.send(
             res,
@@ -183,7 +183,7 @@ module.exports.postFormatMiddleware = function postFormatMiddleware(req, res){
 // Convenience Classes and Functions //
 ///////////////////////////////////////
 
-module.exports.RequestContext = class RequestContext {
+class RequestContext {
     constructor(req){
         this.req                    = req;
         this.checkIfEndpointExists();
@@ -283,7 +283,7 @@ module.exports.RequestContext = class RequestContext {
     }
 };
 
-module.exports.ErrorResponse = class ErrorResponse {
+class ErrorResponse {
     constructor(object){
         return new Error(
             JSON.stringify(object)
@@ -308,7 +308,7 @@ module.exports.ErrorResponse = class ErrorResponse {
     }
 };
 
-module.exports.Response = class Response {
+class Response {
     constructor(response, options){
         this.response   = response;
         this.options    = options;
@@ -389,7 +389,7 @@ module.exports.Response = class Response {
 };
 
 // Throws Errors Specific to Requests and Responses
-module.exports.RequestChain = class RequestChain {
+class RequestChain {
     constructor(req){
         this.timeout        = 20 * 1000;
         this.req            = req;
@@ -515,7 +515,7 @@ function findNode(key, currentNode, maxDepth) {
     }
 }
 
-module.exports.ResourceConverter = class ResourceConverter {
+class ResourceConverter {
     constructor(resource, model, requestChain){
         this.resource       = resource;
         this.model          = model;
@@ -587,6 +587,6 @@ module.exports.ResourceConverter = class ResourceConverter {
                 }
             )
     }
-};
+}
 
 

@@ -1,0 +1,221 @@
+---
+swagger: "2.0"
+info:
+  description: "REST API Specification for Pure Access/TruCred Integration.\n"
+  version: "1.0.0"
+  title: "Pure Access REST API"
+  termsOfService: ""
+  contact:
+    email: "kirill@isonas.com"
+  license:
+    name: "Apache 2.0"
+    url: "http://www.apache.org/licenses/LICENSE-2.0.html"
+host: "localhost:9080"
+basePath: "/"
+schemes:
+- "https"
+paths:
+  /users:
+    get:
+      tags:
+      - "users"
+      summary: "Get All Users"
+      operationId: "usersGET"
+      produces:
+      - "application/json"
+      parameters: []
+      responses:
+        200:
+          description: "Successful operation"
+          schema:
+            $ref: "#/definitions/Users"
+          headers:
+            Access-Control-Allow-Origin:
+              type: "string"
+              description: "URI that may access the resource"
+        403:
+          description: "Unauthenticated"
+          schema:
+            $ref: "#/definitions/Error"
+        500:
+          description: "Internal Server Error"
+          schema:
+            $ref: "#/definitions/Error"
+      x-apigateway-integration:
+        hostname: "localhost"
+        port: "9080"
+        path: "/getUsersAndImages"
+        httpMethod: "GET"
+        type: "https"
+      x-swagger-router-controller: "Users"
+  /users/{id}:
+    get:
+      tags:
+      - "users"
+      summary: "Get User"
+      operationId: "userGET"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "ID of user to retrieve"
+        required: true
+        type: "string"
+      responses:
+        200:
+          description: "Successful operation"
+          schema:
+            $ref: "#/definitions/User"
+          headers:
+            Access-Control-Allow-Origin:
+              type: "string"
+              description: "URI that may access the resource"
+        403:
+          description: "Unauthenticated"
+          schema:
+            $ref: "#/definitions/Error"
+        500:
+          description: "Internal Server Error"
+          schema:
+            $ref: "#/definitions/Error"
+      x-apigateway-integration:
+        requestParameters: null
+        hostname: "localhost"
+        port: "9080"
+        path: "/getUser"
+        httpMethod: "GET"
+        type: "https"
+      x-swagger-router-controller: "Users"
+    put:
+      tags:
+      - "users"
+      summary: "Update User"
+      operationId: "userPUT"
+      produces:
+      - "application/json"
+      parameters:
+      - name: "id"
+        in: "path"
+        description: "ID of user to update"
+        required: true
+        type: "string"
+      - in: "body"
+        name: "user"
+        description: "User Update Data"
+        required: true
+        schema:
+          $ref: "#/definitions/UserUpdate"
+      responses:
+        200:
+          description: "Successful operation"
+          schema:
+            $ref: "#/definitions/User"
+          headers:
+            Access-Control-Allow-Origin:
+              type: "string"
+              description: "URI that may access the resource"
+        403:
+          description: "Unauthenticated"
+          schema:
+            $ref: "#/definitions/Error"
+        500:
+          description: "Internal Server Error"
+          schema:
+            $ref: "#/definitions/Error"
+      x-apigateway-integration:
+        requestParameters: null
+        hostname: "localhost"
+        port: "9080"
+        path: "/saveUser"
+        httpMethod: "GET"
+        type: "https"
+      x-swagger-router-controller: "Users"
+definitions:
+  Users:
+    type: "array"
+    items:
+      $ref: "#/definitions/MultiUserItem"
+  UserUpdate:
+    type: "object"
+    properties:
+      id:
+        type: "integer"
+      firstName:
+        type: "string"
+      lastName:
+        type: "string"
+      mi:
+        type: "string"
+      employeeId:
+        type: "integer"
+      image:
+        type: "string"
+        format: "base64"
+      notificationEmail:
+        type: "string"
+      userDefinedFields:
+        type: "object"
+        properties: {}
+    example:
+      firstName: "firstName"
+      lastName: "lastName"
+      image: "image"
+      employeeId: 6
+      id: 0
+      mi: "mi"
+      notificationEmail: "notificationEmail"
+      userDefinedFields: "{}"
+  MultiUserItem:
+    type: "object"
+    properties:
+      id:
+        type: "integer"
+      displayName:
+        type: "string"
+  User:
+    type: "object"
+    properties:
+      id:
+        type: "integer"
+      displayName:
+        type: "string"
+      firstName:
+        type: "string"
+      lastName:
+        type: "string"
+      mi:
+        type: "string"
+      employeeId:
+        type: "integer"
+      image:
+        type: "string"
+        format: "base64"
+      notificationEmail:
+        type: "string"
+      userDefinedFields:
+        type: "object"
+        properties: {}
+      disable:
+        type: "boolean"
+    example:
+      firstName: "firstName"
+      lastName: "lastName"
+      image: "image"
+      displayName: "displayName"
+      disable: true
+      employeeId: 6
+      id: 0
+      mi: "mi"
+      notificationEmail: "notificationEmail"
+      userDefinedFields: "{}"
+  Error:
+    type: "object"
+    properties:
+      message:
+        type: "string"
+      status:
+        type: "number"
+externalDocs:
+  description: "ISONAS Website"
+  url: "http://isonas.com"
